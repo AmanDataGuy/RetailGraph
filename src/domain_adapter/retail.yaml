@@ -1,0 +1,395 @@
+# ════════════════════════════════════════════════════════════════
+#  Domain Adapter — Retail / Grocery (US Amazon dataset)
+#  Used by: normalizer.py, validator.py, labeling_functions.py
+#
+#  NOTE: This file grows over time. Add new aliases when you
+#  spot recurring patterns in data/extracted/failed.csv
+# ════════════════════════════════════════════════════════════════
+
+# ── Brand normalization ──────────────────────────────────────────
+# Maps messy supplier spellings → canonical brand name
+# RapidFuzz handles close misspellings automatically.
+# Only add here when fuzzy matching consistently gets it wrong.
+brand_aliases:
+  # Smucker's
+  "smuckers": "Smucker's"
+  "smucker's natural": "Smucker's"
+  "smuckers natural": "Smucker's"
+
+  # Trader Joe's
+  "trader joes": "Trader Joe's"
+  "traderjoes": "Trader Joe's"
+
+  # AriZona
+  "arizona": "AriZona"
+  "arizona beverages": "AriZona"
+
+  # Bush's
+  "bush's best": "Bush's"
+  "bushs best": "Bush's"
+  "bushs": "Bush's"
+
+  # BODYARMOR
+  "bodyarmor": "BODYARMOR"
+  "body armor": "BODYARMOR"
+  "body armour": "BODYARMOR"
+
+  # Nature's Path
+  "natures path": "Nature's Path"
+  "nature's path organic": "Nature's Path"
+
+  # Mrs. Miller's
+  "mrs millers": "Mrs. Miller's"
+  "mrs. millers": "Mrs. Miller's"
+  "mrs millers homemade": "Mrs. Miller's"
+
+  # BulkSupplements
+  "bulksupplements": "BulkSupplements.com"
+  "bulk supplements": "BulkSupplements.com"
+  "bulksupplements.com": "BulkSupplements.com"
+
+  # Amy's
+  "amys": "Amy's"
+  "amy's kitchen": "Amy's"
+
+  # Judee's
+  "judees": "Judee's"
+  "judee's gluten free": "Judee's"
+
+  # Member's Mark
+  "members mark": "Member's Mark"
+  "member's mark": "Member's Mark"
+
+  # Don Francisco's
+  "don franciscos": "Don Francisco's"
+  "don francisco's coffee": "Don Francisco's"
+
+  # Jiva Organics
+  "jiva organic": "Jiva Organics"
+  "jiva organics": "Jiva Organics"
+
+  # Colour Mill
+  "colour mill": "Colour Mill"
+  "color mill": "Colour Mill"
+
+  # La Costeña
+  "la costena": "La Costeña"
+  "la costena foods": "La Costeña"
+
+  # Camellia
+  "camellia brand": "Camellia"
+  "camellia brand dried": "Camellia"
+
+  # Goya
+  "goya foods": "Goya"
+  "goya foods inc": "Goya"
+
+  # Celestial Seasonings
+  "celestial seasonings herbal": "Celestial Seasonings"
+
+  # Marshalls Creek
+  "marshalls creek": "Marshalls Creek Spices"
+  "marshalls creek spices": "Marshalls Creek Spices"
+
+  # Others
+  "starbucks coffee": "Starbucks"
+  "community coffee co": "Community Coffee"
+  "simple mills": "Simple Mills"
+  "bear creek country kitchens": "Bear Creek"
+  "food to live organic": "Food to Live"
+  "iberia foods": "Iberia"
+  "arrowhead mills organic": "Arrowhead Mills"
+  "vineco original": "VineCo"
+  "la victoria foods": "La Victoria"
+  "aloha organic": "ALOHA"
+  "kize": "KiZE Bars"
+  "himalania": "Himalania"
+  "sayan siberian": "Sayan"
+  "klass": "Klass"
+  "kedem": "Kedem"
+  "albanese candy": "Albanese"
+  "country archer jerky": "Country Archer"
+  "salerno": "Salerno"
+
+# ── Dietary tag normalization ────────────────────────────────────
+# Maps synonyms → canonical dietary tag
+dietary_tag_aliases:
+  # Vegan
+  "plant-based": "vegan"
+  "100% vegan": "vegan"
+  "purely vegan": "vegan"
+  "vegan friendly": "vegan"
+
+  # Gluten-Free
+  "gluten free": "gluten-free"
+  "gluten-free certified": "gluten-free"
+  "gf certified": "gluten-free"
+  "certified gluten free": "gluten-free"
+
+  # Sugar-Free
+  "sugar free": "sugar-free"
+  "no sugar": "sugar-free"
+  "zero sugar": "sugar-free"
+  "no added sugar": "sugar-free"
+  "unsweetened": "sugar-free"
+
+  # Non-GMO
+  "non gmo": "non-GMO"
+  "non-gmo verified": "non-GMO"
+  "nongmo": "non-GMO"
+  "non gmo verified": "non-GMO"
+
+  # Organic
+  "usda organic": "organic"
+  "100% organic": "organic"
+  "certified organic": "organic"
+  "organic certified": "organic"
+
+  # Dairy-Free
+  "dairy free": "dairy-free"
+  "non dairy": "dairy-free"
+  "non-dairy": "dairy-free"
+
+  # Soy-Free
+  "soy free": "soy-free"
+  "no soy": "soy-free"
+
+  # Nut-Free
+  "nut free": "nut-free"
+  "tree nut free": "nut-free"
+  "peanut free": "nut-free"
+
+  # Allergen-Free
+  "allergen free": "allergen-free"
+  "free from allergens": "allergen-free"
+
+  # Kosher
+  "kosher certified": "kosher"
+  "kosher pareve": "kosher"
+
+  # Paleo / Keto
+  "paleo friendly": "paleo"
+  "paleo diet": "paleo"
+  "keto friendly": "keto"
+  "ketogenic": "keto"
+  "keto diet": "keto"
+
+  # High-Protein
+  "high protein": "high-protein"
+  "good source of protein": "high-protein"
+
+  # Low-Calorie
+  "low calorie": "low-calorie"
+  "low cal": "low-calorie"
+
+  # Caffeine-Free
+  "caffeine free": "caffeine-free"
+  "decaf": "caffeine-free"
+  "decaffeinated": "caffeine-free"
+
+# ── Unit normalization ───────────────────────────────────────────
+# Maps messy unit strings → canonical form
+# These appear in the "Unit" column of your CSV
+unit_aliases:
+  # Ounces
+  "ounce": "oz"
+  "ounces": "oz"
+  "Ounce": "oz"
+  "Ounces": "oz"
+  "OZ": "oz"
+
+  # Fluid Ounces
+  "fluid ounce": "fl oz"
+  "fluid ounces": "fl oz"
+  "Fl Oz": "fl oz"
+  "FL OZ": "fl oz"
+
+  # Pounds
+  "pound": "lb"
+  "pounds": "lb"
+  "lbs": "lb"
+  "LB": "lb"
+
+  # Count
+  "Count": "ct"
+  "count": "ct"
+  "CT": "ct"
+  "piece": "ct"
+  "pieces": "ct"
+  "pack": "ct"
+
+  # Milliliters
+  "milliliter": "ml"
+  "milliliters": "ml"
+  "ML": "ml"
+
+  # Liters
+  "liter": "L"
+  "liters": "L"
+  "litre": "L"
+  "litres": "L"
+
+  # Grams
+  "gram": "g"
+  "grams": "g"
+  "GM": "g"
+  "gm": "g"
+
+  # Kilograms
+  "kilogram": "kg"
+  "kilograms": "kg"
+  "KG": "kg"
+
+# ── Compliance fields ────────────────────────────────────────────
+# These fields get an extra validation pass before graph write.
+# A missing or invalid value here → routed to product.failed
+# Removed fssai_license — not applicable to US dataset
+compliance_fields:
+  - allergen_list
+  - dietary_tags
+
+# ── Known categories ─────────────────────────────────────────────
+# Based on actual products observed in the Amazon US dataset.
+# Used by labeling functions to assign category labels.
+categories:
+  - Snacks & Candy
+  - Beverages
+  - Coffee & Tea
+  - Condiments & Sauces
+  - Baking & Cooking
+  - Grains, Beans & Legumes
+  - Supplements & Health
+  - Spices & Seasonings
+  - Dairy & Alternatives
+  - Personal Care & Beauty
+  - Fresh & Flowers
+  - Breakfast & Cereal
+  - Pasta & Noodles
+  - Oils & Vinegars
+  - Nuts & Seeds
+  - Frozen Food
+  - Organic & Natural
+  - Protein Bars & Snacks
+  - Cooking Ingredients
+  - Herbal & Specialty Teas
+
+# ── Keywords for labeling functions ─────────────────────────────
+# Used by Snorkel LFs to detect category from product text.
+# These are patterns observed directly in your catalog_content field.
+category_keywords:
+  Beverages:
+    - "juice"
+    - "drink"
+    - "beverage"
+    - "cocktail"
+    - "sports drink"
+    - "water"
+    - "soda"
+
+  "Coffee & Tea":
+    - "coffee"
+    - "tea"
+    - "espresso"
+    - "roast"
+    - "k-cup"
+    - "keurig"
+    - "brew"
+    - "herbal tea"
+    - "chai"
+
+  "Snacks & Candy":
+    - "snack"
+    - "candy"
+    - "chocolate"
+    - "gummi"
+    - "gummy"
+    - "pretzel"
+    - "chip"
+    - "cookie"
+    - "cracker"
+    - "bar"
+    - "nonpareils"
+    - "freeze dried"
+
+  "Grains, Beans & Legumes":
+    - "bean"
+    - "beans"
+    - "lentil"
+    - "pea"
+    - "peas"
+    - "legume"
+    - "kidney"
+    - "pinto"
+    - "black bean"
+    - "chickpea"
+    - "lentils"
+
+  "Condiments & Sauces":
+    - "sauce"
+    - "marinade"
+    - "seasoning"
+    - "dressing"
+    - "jam"
+    - "jelly"
+    - "salsa"
+    - "cooking wine"
+    - "vinegar"
+
+  "Supplements & Health":
+    - "supplement"
+    - "protein"
+    - "vitamin"
+    - "powder"
+    - "capsule"
+    - "immune"
+    - "antioxidant"
+    - "mushroom"
+    - "probiotic"
+
+  "Spices & Seasonings":
+    - "spice"
+    - "seasoning"
+    - "herb"
+    - "sage"
+    - "basil"
+    - "oregano"
+    - "salt"
+    - "pepper"
+    - "ground"
+
+  "Personal Care & Beauty":
+    - "foundation"
+    - "mousse"
+    - "beauty"
+    - "skin"
+    - "lotion"
+    - "shampoo"
+    - "soap"
+    - "cosmetic"
+
+  "Baking & Cooking":
+    - "baking"
+    - "flour"
+    - "sugar"
+    - "coloring"
+    - "food color"
+    - "cooking"
+    - "mix"
+    - "yeast"
+
+  "Nuts & Seeds":
+    - "peanut"
+    - "almond"
+    - "cashew"
+    - "walnut"
+    - "nut"
+    - "seed"
+    - "pecan"
+
+  "Protein Bars & Snacks":
+    - "protein bar"
+    - "energy bar"
+    - "snack bar"
+    - "meal replacement"
+    - "kize"
+    - "aloha"

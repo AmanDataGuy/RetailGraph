@@ -1,0 +1,68 @@
+version: 1
+disable_existing_loggers: false
+
+# ── Formatters ───────────────────────────────────────────────────
+# standard → human readable in your terminal during development
+# json     → machine readable, goes to log files in production
+formatters:
+
+  standard:
+    format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
+
+  json:
+    format: '{"time":"%(asctime)s","level":"%(levelname)s","module":"%(name)s","message":"%(message)s"}'
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+
+# ── Handlers ─────────────────────────────────────────────────────
+# console → prints to terminal
+# file    → writes to logs/retailgraph.log
+handlers:
+
+  console:
+    class: logging.StreamHandler
+    formatter: standard
+    stream: ext://sys.stdout
+
+  file:
+    class: logging.FileHandler
+    formatter: json
+    filename: logs/retailgraph.log
+    mode: a                 # append — don't wipe old logs on restart
+    encoding: utf-8
+
+# ── Module-level loggers ─────────────────────────────────────────
+# Override log level per module
+# DEBUG = everything, INFO = normal, WARNING = problems, ERROR = failures
+loggers:
+
+  src.extraction:
+    level: DEBUG            # verbose during development — see every extraction step
+    handlers: [console, file]
+    propagate: false
+
+  src.graph:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  src.agent:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  src.streaming:
+    level: INFO
+    handlers: [console, file]
+    propagate: false
+
+  src.api:
+    level: WARNING          # only log problems in API layer
+    handlers: [console, file]
+    propagate: false
+
+# ── Root logger ──────────────────────────────────────────────────
+# Catches anything not covered by the module loggers above
+root:
+  level: INFO
+  handlers: [console, file]
