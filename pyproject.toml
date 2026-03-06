@@ -1,13 +1,11 @@
-[tool.black]
-line-length = 100
-target-version = ["py310"]
-
 [tool.ruff]
-line-length = 100
-select = ["E", "F", "I", "W"]
-ignore = ["E501"]
+line-length = 88
+target-version = "py310"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_functions = ["test_*"]
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+"scripts/*" = ["T201"]

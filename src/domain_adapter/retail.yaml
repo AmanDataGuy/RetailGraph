@@ -1,97 +1,51 @@
 # ════════════════════════════════════════════════════════════════
 #  Domain Adapter — Retail / Grocery (US Amazon dataset)
 #  Used by: normalizer.py, validator.py, labeling_functions.py
-#
-#  NOTE: This file grows over time. Add new aliases when you
-#  spot recurring patterns in data/extracted/failed.csv
 # ════════════════════════════════════════════════════════════════
 
-# ── Brand normalization ──────────────────────────────────────────
-# Maps messy supplier spellings → canonical brand name
-# RapidFuzz handles close misspellings automatically.
-# Only add here when fuzzy matching consistently gets it wrong.
 brand_aliases:
-  # Smucker's
   "smuckers": "Smucker's"
   "smucker's natural": "Smucker's"
   "smuckers natural": "Smucker's"
-
-  # Trader Joe's
   "trader joes": "Trader Joe's"
   "traderjoes": "Trader Joe's"
-
-  # AriZona
   "arizona": "AriZona"
   "arizona beverages": "AriZona"
-
-  # Bush's
   "bush's best": "Bush's"
   "bushs best": "Bush's"
   "bushs": "Bush's"
-
-  # BODYARMOR
   "bodyarmor": "BODYARMOR"
   "body armor": "BODYARMOR"
   "body armour": "BODYARMOR"
-
-  # Nature's Path
   "natures path": "Nature's Path"
   "nature's path organic": "Nature's Path"
-
-  # Mrs. Miller's
   "mrs millers": "Mrs. Miller's"
   "mrs. millers": "Mrs. Miller's"
   "mrs millers homemade": "Mrs. Miller's"
-
-  # BulkSupplements
   "bulksupplements": "BulkSupplements.com"
   "bulk supplements": "BulkSupplements.com"
   "bulksupplements.com": "BulkSupplements.com"
-
-  # Amy's
   "amys": "Amy's"
   "amy's kitchen": "Amy's"
-
-  # Judee's
   "judees": "Judee's"
   "judee's gluten free": "Judee's"
-
-  # Member's Mark
   "members mark": "Member's Mark"
   "member's mark": "Member's Mark"
-
-  # Don Francisco's
   "don franciscos": "Don Francisco's"
   "don francisco's coffee": "Don Francisco's"
-
-  # Jiva Organics
   "jiva organic": "Jiva Organics"
   "jiva organics": "Jiva Organics"
-
-  # Colour Mill
   "colour mill": "Colour Mill"
   "color mill": "Colour Mill"
-
-  # La Costeña
   "la costena": "La Costeña"
   "la costena foods": "La Costeña"
-
-  # Camellia
   "camellia brand": "Camellia"
   "camellia brand dried": "Camellia"
-
-  # Goya
   "goya foods": "Goya"
   "goya foods inc": "Goya"
-
-  # Celestial Seasonings
   "celestial seasonings herbal": "Celestial Seasonings"
-
-  # Marshalls Creek
   "marshalls creek": "Marshalls Creek Spices"
   "marshalls creek spices": "Marshalls Creek Spices"
-
-  # Others
   "starbucks coffee": "Starbucks"
   "community coffee co": "Community Coffee"
   "simple mills": "Simple Mills"
@@ -110,147 +64,151 @@ brand_aliases:
   "albanese candy": "Albanese"
   "country archer jerky": "Country Archer"
   "salerno": "Salerno"
+  "campbell's": "Campbell's"
+  "campbells": "Campbell's"
+  "annie's homegrown": "Annie's"
+  "annies": "Annie's"
+  "zatarain's": "Zatarain's"
+  "zatarains": "Zatarain's"
+  "sara lee": "Sara Lee"
 
-# ── Dietary tag normalization ────────────────────────────────────
-# Maps synonyms → canonical dietary tag
 dietary_tag_aliases:
-  # Vegan
+  "vegan": "vegan"
+  "organic": "organic"
+  "kosher": "kosher"
   "plant-based": "vegan"
   "100% vegan": "vegan"
   "purely vegan": "vegan"
   "vegan friendly": "vegan"
-
-  # Gluten-Free
   "gluten free": "gluten-free"
   "gluten-free certified": "gluten-free"
   "gf certified": "gluten-free"
   "certified gluten free": "gluten-free"
-
-  # Sugar-Free
   "sugar free": "sugar-free"
   "no sugar": "sugar-free"
   "zero sugar": "sugar-free"
   "no added sugar": "sugar-free"
   "unsweetened": "sugar-free"
-
-  # Non-GMO
   "non gmo": "non-GMO"
+  "non-gmo": "non-GMO"
   "non-gmo verified": "non-GMO"
   "nongmo": "non-GMO"
   "non gmo verified": "non-GMO"
-
-  # Organic
   "usda organic": "organic"
   "100% organic": "organic"
   "certified organic": "organic"
   "organic certified": "organic"
-
-  # Dairy-Free
   "dairy free": "dairy-free"
   "non dairy": "dairy-free"
   "non-dairy": "dairy-free"
-
-  # Soy-Free
   "soy free": "soy-free"
   "no soy": "soy-free"
-
-  # Nut-Free
   "nut free": "nut-free"
   "tree nut free": "nut-free"
   "peanut free": "nut-free"
-
-  # Allergen-Free
   "allergen free": "allergen-free"
   "free from allergens": "allergen-free"
-
-  # Kosher
   "kosher certified": "kosher"
   "kosher pareve": "kosher"
-
-  # Paleo / Keto
   "paleo friendly": "paleo"
   "paleo diet": "paleo"
   "keto friendly": "keto"
   "ketogenic": "keto"
   "keto diet": "keto"
-
-  # High-Protein
   "high protein": "high-protein"
   "good source of protein": "high-protein"
-
-  # Low-Calorie
   "low calorie": "low-calorie"
   "low cal": "low-calorie"
-
-  # Caffeine-Free
   "caffeine free": "caffeine-free"
   "decaf": "caffeine-free"
   "decaffeinated": "caffeine-free"
 
-# ── Unit normalization ───────────────────────────────────────────
-# Maps messy unit strings → canonical form
-# These appear in the "Unit" column of your CSV
+dietary_tags_controlled:
+  - gluten-free
+  - dairy-free
+  - sugar-free
+  - nut-free
+  - soy-free
+  - vegan
+  - kosher
+  - organic
+  - non-GMO
+  - keto
+  - paleo
+  - high-protein
+  - low-calorie
+  - caffeine-free
+  - allergen-free
+
+allergen_aliases:
+  "eggs": "egg"
+  "tree nuts": "tree_nut"
+  "tree nut": "tree_nut"
+
+allergens_controlled:
+  - milk
+  - egg
+  - wheat
+  - soy
+  - peanut
+  - fish
+  - shellfish
+  - sesame
+  - tree_nut
+  - gluten
+
 unit_aliases:
-  # Ounces
+  "oz": "oz"
+  "lb": "lb"
+  "Pack": "ct"
+  "COUNT": "ct"
+  "Fluid Ounce": "fl oz"
+  "fluid oz": "fl oz"
   "ounce": "oz"
   "ounces": "oz"
   "Ounce": "oz"
   "Ounces": "oz"
   "OZ": "oz"
-
-  # Fluid Ounces
+  "Oz": "oz"
   "fluid ounce": "fl oz"
   "fluid ounces": "fl oz"
   "Fl Oz": "fl oz"
   "FL OZ": "fl oz"
-
-  # Pounds
+  "FL Oz": "fl oz"
+  "Fl. Oz": "fl oz"
+  "fl oz": "fl oz"
   "pound": "lb"
   "pounds": "lb"
+  "Pound": "lb"
   "lbs": "lb"
   "LB": "lb"
-
-  # Count
   "Count": "ct"
   "count": "ct"
   "CT": "ct"
+  "ct": "ct"
   "piece": "ct"
   "pieces": "ct"
   "pack": "ct"
-
-  # Milliliters
   "milliliter": "ml"
   "milliliters": "ml"
   "ML": "ml"
-
-  # Liters
   "liter": "L"
   "liters": "L"
   "litre": "L"
   "litres": "L"
-
-  # Grams
   "gram": "g"
   "grams": "g"
+  "Gram": "g"
   "GM": "g"
   "gm": "g"
-
-  # Kilograms
   "kilogram": "kg"
   "kilograms": "kg"
   "KG": "kg"
 
-# ── Compliance fields ────────────────────────────────────────────
-# These fields get an extra validation pass before graph write.
-# A missing or invalid value here → routed to product.failed
-# Removed fssai_license — not applicable to US dataset
 compliance_fields:
   - allergen_list
   - dietary_tags
 
-# ── Known categories ─────────────────────────────────────────────
-# Based on actual products observed in the Amazon US dataset.
-# Used by labeling functions to assign category labels.
 categories:
   - Snacks & Candy
   - Beverages
@@ -260,131 +218,143 @@ categories:
   - Grains, Beans & Legumes
   - Supplements & Health
   - Spices & Seasonings
-  - Dairy & Alternatives
   - Personal Care & Beauty
-  - Fresh & Flowers
   - Breakfast & Cereal
-  - Pasta & Noodles
   - Oils & Vinegars
   - Nuts & Seeds
-  - Frozen Food
-  - Organic & Natural
   - Protein Bars & Snacks
-  - Cooking Ingredients
-  - Herbal & Specialty Teas
+  - Soups & Canned Goods
+  - Bread & Bakery
+  - Meat & Seafood
+  - Pasta & Noodles
+  - Non-Food
 
-# ── Keywords for labeling functions ─────────────────────────────
-# Used by Snorkel LFs to detect category from product text.
-# These are patterns observed directly in your catalog_content field.
 category_keywords:
-  Beverages:
-    - "juice"
-    - "drink"
-    - "beverage"
-    - "cocktail"
-    - "sports drink"
-    - "water"
-    - "soda"
+
+  "Non-Food":
+    - "polyester"
+    - "plastic"
+    - "bundle"
+    - "artificial flowers"
+    - "sandal"
+    - "shoe"
+    - "clothing"
+    - "apparel"
+    - "jar lid"
+    - "wide mouth bands"
+    - "dome lid"
+    - "kitchen tool"
+    - "cleaning"
+    - "cleaner"
+    - "scouring"
+    - "parchment paper"
+    - "safety pin"
+    - "toothbrush"
+    - "fertilizer"
+    - "bouquet"
+    - "sprinkler"
+    - "rain gauge"
+    - "garden"
+    - "expectorant"
+    - "cough suppressant"
+    - "toddler meal"
+    - "baby food"
 
   "Coffee & Tea":
+    - "rooibos"
     - "coffee"
-    - "tea"
     - "espresso"
-    - "roast"
     - "k-cup"
     - "keurig"
-    - "brew"
+    - "cold brew coffee"
+    - "chai tea"
     - "herbal tea"
-    - "chai"
+    - "green tea"
+    - "black tea"
+    - "white tea"
+    - "matcha"
+    - "oolong"
+    - "chamomile"
+    - "coffee pods"
+    - "coffee grounds"
+    - "coffee beans"
+    - "jasmine tea"
+    - "pu-erh"
+    - "chaga tea"
+    - "hot chocolate"
+    - "cocoa mix"
+    - "yerba mate"
 
-  "Snacks & Candy":
-    - "snack"
-    - "candy"
-    - "chocolate"
-    - "gummi"
-    - "gummy"
-    - "pretzel"
-    - "chip"
-    - "cookie"
-    - "cracker"
-    - "bar"
-    - "nonpareils"
-    - "freeze dried"
+  "Breakfast & Cereal":
+    - "cereal"
+    - "oatmeal"
+    - "granola"
+    - "muesli"
+    - "porridge"
+    - "corn flakes"
+    - "multigrain cereal"
 
-  "Grains, Beans & Legumes":
-    - "bean"
-    - "beans"
-    - "lentil"
-    - "pea"
-    - "peas"
-    - "legume"
-    - "kidney"
-    - "pinto"
-    - "black bean"
-    - "chickpea"
-    - "lentils"
+  "Meat & Seafood":
+    - "beef stick"
+    - "jerky"
+    - "beef jerky"
+    - "turkey jerky"
+    - "salmon"
+    - "tuna"
+    - "sardine"
+    - "seafood"
+    - "sausage"
+    - "pepperoni"
+    - "salami"
+    - "chicken tender"
+    - "grilled chicken"
+    - "bacon"
+    - "bacon bits"
+    - "kung pao chicken"
+    - "pulled chicken"
 
-  "Condiments & Sauces":
-    - "sauce"
-    - "marinade"
-    - "seasoning"
-    - "dressing"
-    - "jam"
-    - "jelly"
-    - "salsa"
-    - "cooking wine"
-    - "vinegar"
+  "Soups & Canned Goods":
+    - "soup"
+    - "chili"
+    - "broth"
+    - "stock"
+    - "stew"
+    - "bisque"
+    - "chowder"
+    - "chop suey"
+    - "canned vegetables"
+    - "canned peas"
+    - "canned beans"
 
-  "Supplements & Health":
-    - "supplement"
-    - "protein"
-    - "vitamin"
-    - "powder"
-    - "capsule"
-    - "immune"
-    - "antioxidant"
-    - "mushroom"
-    - "probiotic"
+  "Pasta & Noodles":
+    - "pasta"
+    - "noodle"
+    - "noodles"
+    - "spaghetti"
+    - "penne"
+    - "fettuccine"
+    - "linguine"
+    - "macaroni"
+    - "ramen"
+    - "pad thai"
+    - "risotto"
+    - "orzo"
 
-  "Spices & Seasonings":
-    - "spice"
-    - "seasoning"
-    - "herb"
-    - "sage"
-    - "basil"
-    - "oregano"
-    - "salt"
-    - "pepper"
-    - "ground"
-
-  "Personal Care & Beauty":
-    - "foundation"
-    - "mousse"
-    - "beauty"
-    - "skin"
-    - "lotion"
-    - "shampoo"
-    - "soap"
-    - "cosmetic"
-
-  "Baking & Cooking":
-    - "baking"
-    - "flour"
-    - "sugar"
-    - "coloring"
-    - "food color"
-    - "cooking"
-    - "mix"
-    - "yeast"
-
-  "Nuts & Seeds":
-    - "peanut"
-    - "almond"
-    - "cashew"
-    - "walnut"
-    - "nut"
-    - "seed"
-    - "pecan"
+  "Bread & Bakery":
+    - "bread"
+    - "bagel"
+    - "tortilla"
+    - "wrap"
+    - "pita"
+    - "crispbread"
+    - "roll"
+    - "bakery"
+    - "muffin"
+    - "cornbread"
+    - "corn bread"
+    - "matzos"
+    - "matzo"
+    - "pie"
 
   "Protein Bars & Snacks":
     - "protein bar"
@@ -393,3 +363,167 @@ category_keywords:
     - "meal replacement"
     - "kize"
     - "aloha"
+    - "kind bar"
+    - "clif"
+    - "rxbar"
+    - "larabar"
+    - "quest bar"
+    - "granola bar"
+
+  "Supplements & Health":
+    - "supplement"
+    - "vitamin"
+    - "capsule"
+    - "immune"
+    - "antioxidant"
+    - "probiotic"
+    - "adaptogen"
+    - "superfood"
+    - "collagen"
+    - "omega"
+    - "mushroom extract"
+
+  "Grains, Beans & Legumes":
+    - "bean"
+    - "beans"
+    - "lentil"
+    - "lentils"
+    - "legume"
+    - "kidney"
+    - "pinto"
+    - "black bean"
+    - "chickpea"
+    - "black-eyed peas"
+    - "rice"
+    - "quinoa"
+    - "barley"
+    - "farro"
+
+  "Oils & Vinegars":
+    - "olive oil"
+    - "coconut oil"
+    - "vegetable oil"
+    - "cooking oil"
+    - "oil spray"
+    - "avocado oil"
+    - "apple cider vinegar"
+    - "balsamic"
+
+  "Nuts & Seeds":
+    - "peanut butter"
+    - "almond"
+    - "cashew"
+    - "walnut"
+    - "pecan"
+    - "macadamia"
+    - "brazil nut"
+    - "pine nut"
+    - "sunflower seed"
+    - "pumpkin seed"
+    - "flax seed"
+    - "chia seed"
+    - "hemp seed"
+
+  "Personal Care & Beauty":
+    - "foundation"
+    - "beauty"
+    - "lotion"
+    - "shampoo"
+    - "soap"
+    - "cosmetic"
+    - "moisturizer"
+    - "toothpaste"
+    - "dental"
+
+  "Spices & Seasonings":
+    - "spice"
+    - "herb"
+    - "sage"
+    - "basil"
+    - "oregano"
+    - "pink salt"
+    - "himalayan salt"
+    - "seasoning blend"
+    - "sazonador"
+    - "adobo"
+    - "black pepper"
+    - "salt substitute"
+    - "flavor enhancer"
+    - "everyday seasoning"
+
+  "Condiments & Sauces":
+    - "sauce"
+    - "marinade"
+    - "dressing"
+    - "jam"
+    - "jelly"
+    - "salsa"
+    - "cooking wine"
+    - "vinegar"
+    - "syrup"
+    - "pickle"
+    - "pickled"
+    - "taco sauce"
+    - "hot sauce"
+    - "jalapeno"
+    - "olive"
+    - "olives"
+    - "fruit pulp"
+
+  "Baking & Cooking":
+    - "baking"
+    - "flour"
+    - "corn flour"
+    - "food coloring"
+    - "food color"
+    - "yeast"
+    - "vanilla bean"
+    - "vanilla extract"
+    - "baking mix"
+    - "cake mix"
+    - "stevia"
+    - "sweetener"
+    - "trehalose"
+    - "cocoa powder"
+    - "sprinkles"
+    - "cake topping"
+    - "quins"
+    - "decoration"
+
+  "Snacks & Candy":
+    - "snack"
+    - "biscuit"
+    - "candy"
+    - "chocolate"
+    - "gummi"
+    - "gummy"
+    - "pretzel"
+    - "chip"
+    - "cookie"
+    - "cracker"
+    - "wafer"
+    - "nonpareils"
+    - "freeze dried"
+    - "popcorn"
+    - "rice cake"
+    - "hard candy"
+    - "ginger candy"
+    - "caramel candy"
+    - "peppermint candy"
+    - "lollipop"
+    - "pez"
+    - "jolly rancher"
+    - "werther"
+    - "kettle corn"
+
+  "Beverages":
+    - "juice"
+    - "drink"
+    - "beverage"
+    - "cocktail"
+    - "sports drink"
+    - "water"
+    - "soda"
+    - "lemonade"
+    - "smoothie"
+    - "sparkling"

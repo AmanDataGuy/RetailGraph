@@ -1,9 +1,11 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic_settings import BaseSettings
+
 # Root of the project — used to build file paths reliably
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
 
@@ -34,17 +36,17 @@ class Settings(BaseSettings):
     api_port: int = 8000
 
     # ── Extraction ──────────────────────────────────────────────────────────
-    max_retries: int = 3              # retry attempts before routing to failed
-    confidence_threshold: float = 0.85 # above this → auto accepted, below → review queue
-    batch_size: int = 32              # how many products processed at once
+    max_retries: int = 3  # retry attempts before routing to failed
+    confidence_threshold: float = 0.85  # above this → auto accepted, below → review queue
+    batch_size: int = 32  # how many products processed at once
 
     # ── Domain ──────────────────────────────────────────────────────────────
-    domain_adapter: str = "retail"    # retail | healthcare | b2b
+    domain_adapter: str = "retail"  # retail | healthcare | b2b
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        case_sensitive = False        # NEO4J_URI and neo4j_uri both work
+        case_sensitive = False  # NEO4J_URI and neo4j_uri both work
 
 
 @lru_cache

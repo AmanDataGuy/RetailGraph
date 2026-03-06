@@ -24,7 +24,7 @@ def setup_logging() -> None:
         logging.warning("logging.yaml not found — using basic config fallback")
         return
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     logging.config.dictConfig(config)
