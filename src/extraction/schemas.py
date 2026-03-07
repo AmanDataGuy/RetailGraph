@@ -152,6 +152,20 @@ class ProductEntity(BaseModel):
         default_factory=list,
         description="Allergens present from controlled vocabulary"
     )
+    @field_validator('dietary_tags', 'allergen_list', mode='before')
+    @classmethod
+    def coerce_none_to_list(cls, v):
+        if v is None:
+            return []
+        return v
+
+    @field_validator('dietary_tags', 'allergen_list', mode='before')
+    @classmethod
+    def coerce_none_to_list(cls, v):
+        if v is None:
+            return []
+        return v
+
     is_organic: Optional[bool] = Field(
         default=None,
         description="Derived — True if organic in dietary_tags"
