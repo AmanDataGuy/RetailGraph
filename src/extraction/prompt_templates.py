@@ -50,6 +50,7 @@ ALLOWED_CATEGORIES = [
 
 ALLOWED_DIETARY_TAGS = [
     "organic",
+    "cruelty-free",
     "kosher",
     "gluten-free",
     "non-GMO",

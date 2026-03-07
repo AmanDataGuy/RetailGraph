@@ -106,6 +106,7 @@ CATEGORY_NAMES = {
 # binary LabelModel (Snorkel requires classes to start from 0).
 DIETARY_TAGS = [
     "organic",
+    "cruelty-free",
     "kosher",
     "gluten-free",
     "non-GMO",
