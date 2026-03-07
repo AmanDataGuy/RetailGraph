@@ -144,12 +144,12 @@ class ProductEntity(BaseModel):
     )
 
     # ── Dietary & Compliance ──────────────────────────────────────────────────
-    dietary_tags: Optional[list[str]] = Field(
-        default=None,
+    dietary_tags: list[str] = Field(
+        default_factory=list,
         description="Canonical dietary tags from controlled vocabulary"
     )
-    allergen_list: Optional[list[str]] = Field(
-        default=None,
+    allergen_list: list[str] = Field(
+        default_factory=list,
         description="Allergens present from controlled vocabulary"
     )
     is_organic: Optional[bool] = Field(
