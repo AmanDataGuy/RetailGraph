@@ -1,0 +1,254 @@
+# =============================================================================
+# RetailGraph — Phase 5 LoRA Fine-tuning Configuration
+# =============================================================================
+# This file controls EVERYTHING about how the model gets trained.
+# You never need to touch finetune_qwen.py to change hyperparameters.
+# Just edit this file and re-run.
+#
+# Quick guide to what each section does:
+#   model    → which model to download and how to load it
+#   lora     → LoRA adapter settings (how we fine-tune without touching all 7B params)
+#   training → learning rate, batch size, epochs — the classic ML knobs
+#   data     → where your JSONL files and images live
+#   output   → where to save checkpoints and the final model
+#   mlflow   → experiment tracking settings
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# MODEL
+# What model we are fine-tuning and how to load it into GPU memory.
+# -----------------------------------------------------------------------------
+model:
+
+  # The base model we download from HuggingFace.
+  # Qwen2-VL-7B-Instruct = 7 billion parameter vision-language model.
+  # "Instruct" means it's already trained to follow instructions — perfect
+  # for our task since we give it a strict system prompt.
+  name: "Qwen/Qwen2-VL-7B-Instruct"
+
+  # Load the model in 4-bit precision (QLoRA).
+  # Normal model = 7B params × 16 bits = ~14GB VRAM.
+  # 4-bit model  = 7B params × 4 bits  = ~4GB VRAM.
+  # This is what makes it fit on a single A100 with room for training.
+  load_in_4bit: true
+
+  # The data type used for computation (not storage).
+  # bfloat16 is the standard for modern GPUs (A100, H100).
+  # More numerically stable than float16 during training.
+  compute_dtype: "bfloat16"
+
+  # Maximum sequence length in tokens.
+  # One training example (system + user + assistant messages) must fit in this.
+  # 2048 is safe for our product listings. Increase to 4096 only if you see
+  # "sequence too long" warnings — it doubles memory usage.
+  max_seq_length: 2048
+
+
+# -----------------------------------------------------------------------------
+# LoRA (Low-Rank Adaptation)
+# Instead of updating all 7 billion parameters (expensive, needs 80GB+ VRAM),
+# LoRA inserts small trainable matrices into specific layers.
+# We only train those small matrices — maybe 20 million params instead of 7B.
+# Result: same quality fine-tune, 10x less memory, 5x faster.
+# -----------------------------------------------------------------------------
+lora:
+
+  # Rank — controls the size of the LoRA adapter matrices.
+  # Think of it as: how much capacity does the adapter have to learn?
+  # r=8  → tiny, fast, less expressive
+  # r=16 → balanced ← we use this
+  # r=64 → large, slow, more expressive (needed for complex tasks)
+  # For schema enforcement (our task), r=16 is plenty.
+  r: 16
+
+  # Alpha — scaling factor for the LoRA updates.
+  # Rule of thumb: always set alpha = 2 × r.
+  # r=16 → alpha=32. This keeps the learning scale consistent.
+  # Don't overthink this — just keep it at 2×r.
+  lora_alpha: 32
+
+  # Dropout — randomly zeros out some adapter weights during training.
+  # Prevents overfitting (memorizing training data instead of learning patterns).
+  # 0.05 = 5% dropout. Low because our dataset is small (3,208 examples).
+  lora_dropout: 0.05
+
+  # Which layers inside the transformer to attach LoRA adapters to.
+  # q_proj = query projection  → how the model decides what to attend to
+  # v_proj = value projection   → what information to extract
+  # k_proj = key projection     → what to compare against
+  # o_proj = output projection  → final output of attention
+  # gate/up/down proj = feed-forward network layers
+  # More target modules = more parameters = better quality but slower training.
+  target_modules:
+    - "q_proj"
+    - "v_proj"
+    - "k_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+  # Only compute loss on the ASSISTANT tokens, not system or user tokens.
+  # This is critical — we want the model to learn to produce correct JSON,
+  # not to memorize the system prompt or the user's catalog text.
+  train_on_responses_only: true
+
+  # Use gradient checkpointing to save VRAM.
+  # Normally, PyTorch saves all intermediate values for backprop.
+  # Gradient checkpointing recomputes them on the fly instead of storing them.
+  # Uses ~30% more compute but saves ~40% VRAM. Always use for large models.
+  use_gradient_checkpointing: true
+
+
+# -----------------------------------------------------------------------------
+# TRAINING
+# The classic ML hyperparameters — learning rate, batch size, epochs.
+# These have the biggest effect on whether training succeeds or fails.
+# -----------------------------------------------------------------------------
+training:
+
+  # Number of full passes through the training data.
+  # epoch 1 → model sees all 3,208 examples once
+  # epoch 2 → model sees them again (shuffled)
+  # epoch 3 → one more time
+  # 3 epochs is standard for fine-tuning on small datasets.
+  # Too many epochs → overfitting (model memorizes, stops generalizing).
+  num_train_epochs: 3
+
+  # How many examples are processed together in one forward pass.
+  # Larger batch = more stable gradients = better training.
+  # But larger batch = more VRAM. 4 is safe for A100 80GB with QLoRA.
+  per_device_train_batch_size: 4
+
+  # Gradient accumulation — simulates a larger batch size without using more VRAM.
+  # effective_batch_size = per_device_train_batch_size × gradient_accumulation_steps
+  # = 4 × 8 = 32 effective batch size
+  # We update weights every 8 mini-batches instead of every 1.
+  gradient_accumulation_steps: 8
+
+  # Learning rate — how big a step to take when updating weights.
+  # Too high → training diverges (loss goes up instead of down)
+  # Too low  → training is very slow, might not converge
+  # 2e-4 = 0.0002. Standard for QLoRA fine-tuning.
+  learning_rate: 2.0e-4
+
+  # Learning rate schedule — how the learning rate changes during training.
+  # "cosine" starts at learning_rate, smoothly decays to near 0 by the end.
+  # Better than constant lr because large steps early, fine adjustments later.
+  lr_scheduler_type: "cosine"
+
+  # Warmup steps — gradually increase lr from 0 to learning_rate at the start.
+  # Prevents the model from making huge destructive updates at step 1
+  # when the LoRA adapters are randomly initialized.
+  # 50 steps is fine for our dataset size.
+  warmup_steps: 50
+
+  # Optimizer — how gradients are used to update weights.
+  # paged_adamw_8bit = AdamW optimizer in 8-bit (saves VRAM).
+  # Unsloth uses "paged" version which pages optimizer states to CPU RAM
+  # when GPU VRAM gets tight. Best choice for QLoRA training.
+  optim: "paged_adamw_8bit"
+
+  # How often to log training loss to console and MLflow.
+  # Every 10 steps = frequent enough to catch problems early.
+  logging_steps: 10
+
+  # How often to run evaluation on val.jsonl and save a checkpoint.
+  # Every 100 steps. With 3,208 examples and batch size 32,
+  # one epoch = ~100 steps. So we evaluate roughly once per epoch.
+  eval_steps: 100
+  save_steps: 100
+
+  # How many checkpoints to keep on disk.
+  # Keeps only the 3 best checkpoints to save disk space.
+  save_total_limit: 3
+
+  # Use bf16 precision for training (matches compute_dtype above).
+  bf16: true
+
+  # Seed for reproducibility — same seed = same random shuffling = same results.
+  seed: 42
+
+
+# -----------------------------------------------------------------------------
+# DATA
+# Where the training files live and how to process them.
+# -----------------------------------------------------------------------------
+data:
+
+  # Path to training JSONL file.
+  # Contains 3,208 lines: 2,228 text pairs + 480 synthetic + 500 visual.
+  train_file: "data/training/train.jsonl"
+
+  # Path to validation JSONL file.
+  # Contains ~678 lines. Used to measure loss after each eval_steps.
+  val_file: "data/training/val.jsonl"
+
+  # Directory where product images are stored.
+  # Only needed for the 500 visual pairs (lines with image_path set).
+  # Text-only pairs ignore this.
+  images_dir: "data/images/train"
+
+  # If a line in train.jsonl has image_path set, load the image.
+  # If image_path is null or missing, skip image loading (text-only pair).
+  # finetune_qwen.py handles this logic automatically.
+  load_images: true
+
+  # Maximum number of workers for the DataLoader.
+  # 4 workers = 4 parallel threads loading images from disk while GPU trains.
+  # Keeps GPU busy instead of waiting for disk reads.
+  dataloader_num_workers: 4
+
+
+# -----------------------------------------------------------------------------
+# OUTPUT
+# Where to save model checkpoints and the final trained model.
+# -----------------------------------------------------------------------------
+output:
+
+  # Directory for saving checkpoints during training.
+  # Checkpoint = model weights at a specific step.
+  # If training crashes at step 250, you can resume from step 200 checkpoint.
+  checkpoint_dir: "outputs/checkpoints"
+
+  # Directory for saving the final merged model after training completes.
+  # This is what you download and use for inference in Phase 6.
+  final_model_dir: "outputs/qwen2vl_retailgraph_v1"
+
+  # After training, merge the LoRA adapter weights back into the base model.
+  # Merged model = single file, easier to deploy, slightly faster inference.
+  # Unmerged model = base model + small adapter file, easier to swap adapters.
+  # We merge for deployment.
+  merge_adapter: true
+
+  # Save the merged model in 16-bit for inference.
+  # 4-bit is great for training (saves VRAM) but 16-bit is better for inference
+  # (more accurate, faster on A100).
+  save_in_16bit: true
+
+
+# -----------------------------------------------------------------------------
+# MLFLOW
+# Experiment tracking — logs all hyperparameters, loss curves, and metrics.
+# So you can compare different training runs and see what worked.
+# -----------------------------------------------------------------------------
+mlflow:
+
+  # Name of the MLflow experiment.
+  # All runs for this project go under this experiment name.
+  experiment_name: "retailgraph-phase5-finetune"
+
+  # Name of this specific run.
+  # v1 = first fine-tuning attempt on seed data.
+  # If you retrain with different hyperparameters, call it v2, v3 etc.
+  run_name: "qwen2vl-7b-lora-seed-v1"
+
+  # Where MLflow stores its data.
+  # "./mlruns" = local directory on the GPU machine.
+  # You download this folder after training to view experiments locally.
+  tracking_uri: "./mlruns"
+
+  # Log the model artifact to MLflow after training.
+  # Lets you load the model directly from MLflow later.
+  log_model: false  # Keep false — model is too large to store in MLflow
