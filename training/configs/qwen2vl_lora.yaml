@@ -98,7 +98,7 @@ lora:
   # Normally, PyTorch saves all intermediate values for backprop.
   # Gradient checkpointing recomputes them on the fly instead of storing them.
   # Uses ~30% more compute but saves ~40% VRAM. Always use for large models.
-  use_gradient_checkpointing: true
+  use_gradient_checkpointing: "unsloth"
 
 
 # -----------------------------------------------------------------------------

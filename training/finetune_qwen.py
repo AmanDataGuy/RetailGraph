@@ -400,7 +400,7 @@ def finetune(cfg: dict):
     FastVisionModel.for_training(model)
 
     # ── Step 4: Load datasets ─────────────────────────────────────────────────
-    train_jsonl = REMOTE_DATA_DIR / "training" / "train.jsonl"
+    train_jsonl = REMOTE_DATA_DIR / "training" / "train_r3.jsonl"
     val_jsonl   = REMOTE_DATA_DIR / "training" / "val.jsonl"
     images_dir  = REMOTE_DATA_DIR / "images" / "train"
 
@@ -490,6 +490,8 @@ def finetune(cfg: dict):
             # The collator handles tokenization at batch time instead.
             dataset_text_field    = "",
             dataset_kwargs        = {"skip_prepare_dataset": True},
+            packing               = False,
+            dataloader_drop_last   = True,
             max_seq_length        = model_cfg["max_seq_length"],
             dataloader_num_workers= data_cfg["dataloader_num_workers"],
         )
@@ -510,7 +512,15 @@ def finetune(cfg: dict):
         log.info(f"  Train examples:  {len(train_examples)}")
         log.info("=" * 60)
 
-        train_result = trainer.train()
+                # Auto-resume from last checkpoint if one exists
+        import os
+        last_ckpt = None
+        if CHECKPOINT_DIR.exists():
+            checkpoints = sorted([d for d in os.listdir(str(CHECKPOINT_DIR)) if d.startswith("checkpoint")])
+            if checkpoints:
+                last_ckpt = str(CHECKPOINT_DIR / checkpoints[-1])
+                log.info(f"Resuming from checkpoint: {last_ckpt}")
+        train_result = trainer.train(resume_from_checkpoint=last_ckpt)
 
         log.info("Training complete!")
         log.info(f"  Total steps:     {train_result.global_step}")
@@ -590,3 +600,5 @@ def main():
     finetune.remote(cfg)
 
     log.info("Fine-tuning job submitted successfully.")
+
+
