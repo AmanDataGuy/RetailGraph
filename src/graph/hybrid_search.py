@@ -38,8 +38,8 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 COLLECTION_NAME = "retailgraph-products"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-QDRANT_CANDIDATE_POOL = 50   # how many Qdrant candidates to fetch before Neo4j filtering
-NEO4J_CANDIDATE_POOL  = 100  # how many Neo4j results to fetch before Qdrant re-ranking
+QDRANT_CANDIDATE_POOL = 50
+NEO4J_CANDIDATE_POOL  = 100
 
 
 class HybridSearch:
@@ -71,22 +71,6 @@ class HybridSearch:
         exclude_allergens: list[str] = None,
         brand: str = None,
     ) -> list[dict]:
-        """
-        Main search interface.
-
-        Args:
-            query:             Natural language search query
-            top_k:             Number of results to return
-            category:          Filter by category (exact)
-            max_price:         Max price filter
-            min_price:         Min price filter
-            dietary_tags:      Must have ALL these tags
-            exclude_allergens: Must NOT contain these allergens
-            brand:             Filter by brand name (exact)
-
-        Returns:
-            List of ranked product dicts with hybrid_score
-        """
         has_constraints = any([
             category, max_price, min_price,
             dietary_tags, exclude_allergens, brand
@@ -103,11 +87,7 @@ class HybridSearch:
     # ── Semantic-First Path ───────────────────────────────────────────────────
 
     def _semantic_first(self, query: str, top_k: int) -> list[dict]:
-        """
-        Qdrant semantic search → enrich with Neo4j relationship data.
-        Best for: 'find me something similar to X', open-ended queries
-        """
-        # Step 1: Qdrant semantic search
+        """Qdrant semantic search → enrich with Neo4j relationship data."""
         vector = self.model.encode(query).tolist()
         qdrant_results = self.qdrant.query_points(
             collection_name=COLLECTION_NAME,
@@ -119,16 +99,12 @@ class HybridSearch:
         if not qdrant_results:
             return []
 
-        # Step 2: Get product IDs
         product_ids = [r.payload.get("product_id") or r.payload.get("sample_id")
-                      for r in qdrant_results]
+                       for r in qdrant_results]
         scores      = {(r.payload.get("product_id") or r.payload.get("sample_id")): r.score
-                      for r in qdrant_results}
+                       for r in qdrant_results}
 
-        # Step 3: Enrich with Neo4j relationship data
         enriched = self._enrich_from_neo4j(product_ids)
-
-        # Step 4: Merge scores
         return self._merge_results(enriched, scores, top_k)
 
     # ── Filter-First Path ─────────────────────────────────────────────────────
@@ -137,11 +113,7 @@ class HybridSearch:
         self, query, top_k, category, max_price, min_price,
         dietary_tags, exclude_allergens, brand
     ) -> list[dict]:
-        """
-        Neo4j exact filtering → Qdrant semantic re-ranking.
-        Best for: structured constraint queries with semantic intent
-        """
-        # Step 1: Neo4j exact filter
+        """Neo4j exact filtering → Qdrant semantic re-ranking."""
         neo4j_results = self._neo4j_filter(
             category, max_price, min_price,
             dietary_tags, exclude_allergens, brand,
@@ -151,15 +123,9 @@ class HybridSearch:
         if not neo4j_results:
             return []
 
-        # Step 2: Qdrant re-rank by semantic similarity
-        vector      = self.model.encode(query).tolist()
-        product_ids = [r["product_id"] for r in neo4j_results]
-
-        # Build Qdrant filter to only search within Neo4j result set
-        # Use scroll + manual scoring for small sets
+        vector        = self.model.encode(query).tolist()
         qdrant_scores = self._score_by_vector(vector, neo4j_results)
 
-        # Step 3: Merge and rank
         for r in neo4j_results:
             pid = r["product_id"]
             r["semantic_score"] = qdrant_scores.get(pid, 0.0)
@@ -179,9 +145,9 @@ class HybridSearch:
     ) -> list[dict]:
         """Build and run a dynamic Cypher filter query."""
 
-        match_clauses  = ["MATCH (p:Product)"]
-        where_clauses  = []
-        params         = {"limit": limit}
+        match_clauses = ["MATCH (p:Product)"]
+        where_clauses = []
+        params        = {"limit": limit}
 
         if category:
             match_clauses.append("MATCH (p)-[:BELONGS_TO]->(c:Category {name: $category})")
@@ -217,14 +183,15 @@ class HybridSearch:
         cypher += """
 OPTIONAL MATCH (p)-[:MADE_BY]->(brand)
 OPTIONAL MATCH (p)-[:BELONGS_TO]->(cat)
-RETURN p.product_id AS product_id,
-       p.item_name  AS item_name,
-       brand.name   AS brand,
-       cat.name     AS category,
-       p.price      AS price,
-       p.dietary_tags   AS dietary_tags,
-       p.allergen_list  AS allergen_list,
-       p.quality_score  AS quality_score
+RETURN p.product_id      AS product_id,
+       p.item_name       AS item_name,
+       brand.name        AS brand,
+       cat.name          AS category,
+       p.price           AS price,
+       p.image_url       AS image_url,
+       p.dietary_tags    AS dietary_tags,
+       p.allergen_list   AS allergen_list,
+       p.quality_score   AS quality_score
 LIMIT $limit
 """
 
@@ -235,12 +202,7 @@ LIMIT $limit
     # ── Qdrant Re-ranking ─────────────────────────────────────────────────────
 
     def _score_by_vector(self, vector: list[float], products: list[dict]) -> dict[str, float]:
-        """
-        Score a small set of products by vector similarity.
-        Uses Qdrant scroll to fetch their stored vectors then dot product.
-        Falls back to 0.5 if vector not found.
-        """
-        # For small sets, use Qdrant filtered search with product_id match
+        """Score a small set of products by vector similarity."""
         scores = {}
         for product in products:
             pid = product.get("product_id")
@@ -264,20 +226,21 @@ LIMIT $limit
     # ── Neo4j Enrichment ──────────────────────────────────────────────────────
 
     def _enrich_from_neo4j(self, product_ids: list[str]) -> list[dict]:
-        """Fetch full relationship data from Neo4j for a list of product IDs."""
+        """Fetch full relationship data + image_url from Neo4j for a list of product IDs."""
         cypher = """
 UNWIND $ids AS pid
 MATCH (p:Product {product_id: pid})
 OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)
 OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)
-RETURN p.product_id   AS product_id,
-       p.item_name    AS item_name,
-       b.name         AS brand,
-       c.name         AS category,
-       p.price        AS price,
-       p.dietary_tags     AS dietary_tags,
-       p.allergen_list    AS allergen_list,
-       p.quality_score    AS quality_score
+RETURN p.product_id    AS product_id,
+       p.item_name     AS item_name,
+       b.name          AS brand,
+       c.name          AS category,
+       p.price         AS price,
+       p.image_url     AS image_url,
+       p.dietary_tags  AS dietary_tags,
+       p.allergen_list AS allergen_list,
+       p.quality_score AS quality_score
 """
         with self.driver.session(database=NEO4J_DATABASE) as session:
             result = session.run(cypher, {"ids": product_ids})
@@ -290,8 +253,8 @@ RETURN p.product_id   AS product_id,
     ) -> list[dict]:
         """Combine Neo4j data with Qdrant scores into final ranked list."""
         for r in enriched:
-            pid = r.get("product_id")
-            sem_score = scores.get(pid, 0.0)
+            pid        = r.get("product_id")
+            sem_score  = scores.get(pid, 0.0)
             qual_score = (r.get("quality_score") or 50) / 100
             r["semantic_score"] = round(sem_score, 3)
             r["hybrid_score"]   = round(0.7 * sem_score + 0.3 * qual_score, 3)
@@ -342,6 +305,6 @@ if __name__ == "__main__":
             tags = ", ".join(r.get("dietary_tags") or []) or "none"
             print(f"  [{r['hybrid_score']}] {r['item_name']}")
             print(f"         Brand: {r['brand']} | ${r['price']} | {r['category']}")
-            print(f"         Tags: {tags}")
+            print(f"         Image: {r.get('image_url', 'none')}")
 
     hs.close()
