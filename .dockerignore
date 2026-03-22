@@ -1,0 +1,31 @@
+# Large raw data files
+data/raw/
+data/images/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Training artifacts (model runs on Modal, not in container)
+mlruns/
+mlruns_r3/
+model_download/
+outputs/
+
+# Evaluation outputs
+evaluation/
+extraction_results/
+
+# Dev files
+.env
+notebooks/
+*.tar
+*.log
+
+# Git
+.git/
+.gitignore
