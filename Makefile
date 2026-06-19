@@ -25,7 +25,7 @@ help:
 # ── Development ───────────────────────────────────────────────────────────────
 run:
 	@echo "▶  Starting FastAPI..."
-	$(PYTHON) main.py &
+	uvicorn src.api.main:app --reload --port 8000 &
 	@echo "▶  Starting Streamlit..."
 	$(STREAMLIT) run app.py
 

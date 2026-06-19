@@ -24,3 +24,5 @@ ENV PYTHONPATH=/app
 # Expose both ports
 EXPOSE 8000
 EXPOSE 8501
+
+#uvicorn src.api.main:app --reload --port 8000 streamlit run src/ui/app.py     
