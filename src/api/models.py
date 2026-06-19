@@ -12,16 +12,17 @@ from pydantic import BaseModel, Field
 
 class ProductResult(BaseModel):
     """A single product returned in search/query results."""
-    item_name:     str
-    price:         Optional[float]   = None
-    brand:         Optional[str]     = None
-    category:      Optional[str]     = None
+    item_name:      str
+    price:          Optional[float]  = None
+    brand:          Optional[str]    = None
+    category:       Optional[str]    = None
     quantity_value: Optional[float]  = None
     quantity_unit:  Optional[str]    = None
-    dietary_tags:  list[str]         = []
-    allergen_list: list[str]         = []
-    quality_score: Optional[float]   = None
-    hybrid_score:  Optional[float]   = None   # only for semantic results
+    dietary_tags:   list[str]        = []
+    allergen_list:  list[str]        = []
+    quality_score:  Optional[float]  = None
+    hybrid_score:   Optional[float]  = None
+    image_url:      Optional[str]    = None
 
 
 # ── POST /query ────────────────────────────────────────────────────────────
@@ -51,36 +52,37 @@ class QueryResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Direct filtered search — bypasses the agent, hits Neo4j/Qdrant directly."""
-    query:             Optional[str]       = None   # semantic query (optional)
-    category:          Optional[str]       = None
-    dietary_tags:      list[str]           = []
-    exclude_allergens: list[str]           = []
-    max_price:         Optional[float]     = None
-    min_price:         Optional[float]     = None
-    brand:             Optional[str]       = None
-    top_k:             int                 = Field(default=10, ge=1, le=50)
+    query:             Optional[str]   = None
+    category:          Optional[str]   = None
+    dietary_tags:      list[str]       = []
+    exclude_allergens: list[str]       = []
+    max_price:         Optional[float] = None
+    min_price:         Optional[float] = None
+    brand:             Optional[str]   = None
+    top_k:             int             = Field(default=10, ge=1, le=50)
 
 class SearchResponse(BaseModel):
     result_count: int
     results:      list[ProductResult]
-    search_type:  str   # "semantic", "filter", "hybrid"
+    search_type:  str
 
 
 # ── GET /products/{product_id} ─────────────────────────────────────────────
 
 class ProductDetail(BaseModel):
     """Full product detail including graph relationships."""
-    product_id:    str
-    item_name:     str
-    price:         Optional[float]  = None
-    brand:         Optional[str]    = None
-    category:      Optional[str]    = None
-    quantity_value: Optional[float] = None
-    quantity_unit:  Optional[str]   = None
-    dietary_tags:  list[str]        = []
-    allergen_list: list[str]        = []
-    quality_score: Optional[float]  = None
-    similar_products: list[dict]    = []   # from SIMILAR_TO edges
+    product_id:       str
+    item_name:        str
+    price:            Optional[float]  = None
+    brand:            Optional[str]    = None
+    category:         Optional[str]    = None
+    quantity_value:   Optional[float]  = None
+    quantity_unit:    Optional[str]    = None
+    dietary_tags:     list[str]        = []
+    allergen_list:    list[str]        = []
+    quality_score:    Optional[float]  = None
+    image_url:        Optional[str]    = None
+    similar_products: list[dict]       = []
 
 
 # ── GET /analytics ─────────────────────────────────────────────────────────
@@ -110,7 +112,7 @@ class AnalyticsResponse(BaseModel):
 # ── GET /health ────────────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
-    status:   str   # "ok" or "degraded"
-    neo4j:    bool
-    qdrant:   bool
-    groq:     bool
+    status: str
+    neo4j:  bool
+    qdrant: bool
+    groq:   bool

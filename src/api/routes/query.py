@@ -59,6 +59,7 @@ async def query_agent(request: QueryRequest):
                 dietary_tags   = r.get("dietary_tags") or [],
                 allergen_list  = r.get("allergen_list") or [],
                 hybrid_score   = r.get("hybrid_score"),
+                image_url      = r.get("image_url"),
             ))
         except Exception:
             continue

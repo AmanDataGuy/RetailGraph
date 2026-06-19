@@ -162,7 +162,7 @@ Graph schema:
                  (Product)-[:CONTAINS_ALLERGEN]->(Allergen)
 
 Product properties: item_name, price, quantity_value, quantity_unit,
-                    quality_score, extraction_confidence
+                    quality_score, extraction_confidence, image_url
 
 Generate a single valid Cypher query. Return ONLY valid JSON:
 {
@@ -172,7 +172,7 @@ Generate a single valid Cypher query. Return ONLY valid JSON:
 
 Rules:
 - Always RETURN: p.item_name, p.price, p.quantity_value, p.quantity_unit,
-                  b.name AS brand, c.name AS category
+                  p.image_url, b.name AS brand, c.name AS category
 - Use OPTIONAL MATCH for Brand (some products have no brand)
 - Use WHERE NOT EXISTS for allergen exclusions
 - Add LIMIT 10 unless the query is for analytics
@@ -236,11 +236,11 @@ def _try_template(entities: dict) -> str | None:
     Returns a pre-built Cypher string if entities match a known pattern.
     Returns None if no template matches → falls back to LLM.
     """
-    tags     = entities.get("dietary_tags", [])
-    category = entities.get("category")
-    max_p    = entities.get("max_price")
-    min_p    = entities.get("min_price")
-    brand    = entities.get("brand")
+    tags      = entities.get("dietary_tags", [])
+    category  = entities.get("category")
+    max_p     = entities.get("max_price")
+    min_p     = entities.get("min_price")
+    brand     = entities.get("brand")
     allergens = entities.get("exclude_allergens", [])
 
     # Brand lookup
@@ -251,16 +251,18 @@ def _try_template(entities: dict) -> str | None:
             f"OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category) "
             f"RETURN p.item_name AS item_name, p.price AS price, "
             f"p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
+            f"p.image_url AS image_url, "
             f"b.name AS brand, c.name AS category "
             f"ORDER BY p.price ASC LIMIT 10"
         )
 
     # Build dynamic MATCH + WHERE
-    match_clauses  = ["MATCH (p:Product)"]
-    where_clauses  = []
-    return_clause  = (
+    match_clauses = ["MATCH (p:Product)"]
+    where_clauses = []
+    return_clause = (
         "RETURN p.item_name AS item_name, p.price AS price, "
         "p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
+        "p.image_url AS image_url, "
         "b.name AS brand, c.name AS category "
         "ORDER BY p.price ASC LIMIT 10"
     )
@@ -328,7 +330,7 @@ def hybrid_search_node(state: AgentState) -> dict:
     """
     from src.graph.hybrid_search import HybridSearch
 
-    entities = state.get("entities", {}) or {}
+    entities  = state.get("entities", {}) or {}
     sem_query = entities.get("semantic_query") or state["query"]
 
     log.info(f"[Node 3b] hybrid_search | query='{sem_query}'")
@@ -350,12 +352,13 @@ def hybrid_search_node(state: AgentState) -> dict:
     raw = []
     for r in results:
         raw.append({
-            "item_name":     r.get("item_name", ""),
-            "price":         r.get("price"),
-            "brand":         r.get("brand"),
-            "category":      r.get("category"),
-            "dietary_tags":  r.get("dietary_tags", []),
-            "hybrid_score":  round(r.get("hybrid_score", 0), 3),
+            "item_name":    r.get("item_name", ""),
+            "price":        r.get("price"),
+            "brand":        r.get("brand"),
+            "category":     r.get("category"),
+            "dietary_tags": r.get("dietary_tags", []),
+            "hybrid_score": round(r.get("hybrid_score", 0), 3),
+            "image_url":    r.get("image_url"),
         })
 
     log.info(f"[Node 3b] returned {len(raw)} results")
@@ -488,10 +491,10 @@ def format_answer(state: AgentState) -> dict:
     """
     Node 5: Format raw results into plain-English answer via Groq.
     """
-    query    = state["query"]
-    results  = state.get("raw_results") or []
-    count    = state.get("result_count", 0)
-    error    = state.get("error")
+    query   = state["query"]
+    results = state.get("raw_results") or []
+    count   = state.get("result_count", 0)
+    error   = state.get("error")
 
     log.info(f"[Node 5] format_answer | results={count} | error={error}")
 
@@ -514,7 +517,7 @@ def format_answer(state: AgentState) -> dict:
         }
 
     # Detect analytics vs product results
-    first = results[0] if results else {}
+    first        = results[0] if results else {}
     is_analytics = "item_name" not in first and "p.item_name" not in first
 
     top = results[:5]
@@ -527,7 +530,7 @@ def format_answer(state: AgentState) -> dict:
         prompt = (
             f"User query: {query}\n"
             f"Analytics results ({count} rows):\n{results_text}\n\n"
-            "Answer the user\'s question directly using this data. "
+            "Answer the user's question directly using this data. "
             "Be specific — mention actual names and numbers from the results."
         )
     else:
