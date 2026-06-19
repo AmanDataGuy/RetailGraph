@@ -42,6 +42,38 @@ QDRANT_CANDIDATE_POOL = 50
 NEO4J_CANDIDATE_POOL  = 100
 
 
+# ── Process-wide singletons ─────────────────────────────────────────────────────
+# The embedding model and the Qdrant/Neo4j clients are expensive to construct.
+# Creating a HybridSearch() per request previously reloaded the SentenceTransformer
+# from disk every call — the main cause of multi-second query latency. These lazy
+# singletons build each resource once and reuse it for the lifetime of the process.
+
+_MODEL  = None
+_QDRANT = None
+_DRIVER = None
+
+
+def _get_model() -> SentenceTransformer:
+    global _MODEL
+    if _MODEL is None:
+        _MODEL = SentenceTransformer(EMBEDDING_MODEL)
+    return _MODEL
+
+
+def _get_qdrant() -> QdrantClient:
+    global _QDRANT
+    if _QDRANT is None:
+        _QDRANT = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    return _QDRANT
+
+
+def _get_driver():
+    global _DRIVER
+    if _DRIVER is None:
+        _DRIVER = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
+    return _DRIVER
+
+
 class HybridSearch:
     """
     GraphRAG hybrid search.
@@ -53,10 +85,10 @@ class HybridSearch:
     """
 
     def __init__(self):
-        self.model  = SentenceTransformer(EMBEDDING_MODEL)
-        self.qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
-        self.driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
-        print("✅ HybridSearch initialized (Neo4j + Qdrant)")
+        # Reuse the process-wide singletons — no per-request model reload or new driver.
+        self.model  = _get_model()
+        self.qdrant = _get_qdrant()
+        self.driver = _get_driver()
 
     # ── Public Interface ──────────────────────────────────────────────────────
 
@@ -263,7 +295,9 @@ RETURN p.product_id    AS product_id,
         return enriched[:top_k]
 
     def close(self):
-        self.driver.close()
+        # Driver is a shared process-wide singleton — do NOT close it per request.
+        # Kept as a no-op so existing callers (and the CLI test) remain valid.
+        pass
 
 
 # ── CLI Test ──────────────────────────────────────────────────────────────────
