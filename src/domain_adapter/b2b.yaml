@@ -1,0 +1,54 @@
+# ════════════════════════════════════════════════════════════════
+#  Domain Adapter — B2B Procurement / Industrial
+# ════════════════════════════════════════════════════════════════
+
+# ── Brand normalization ──────────────────────────────────────────
+brand_aliases:
+  "3m company": "3M"
+  "3m india": "3M"
+  "honeywell intl": "Honeywell"
+  "honeywell international": "Honeywell"
+  "bosch ltd": "Bosch"
+  "robert bosch": "Bosch"
+  "siemens india": "Siemens"
+  "schneider electric": "Schneider"
+
+# ── Unit normalization ───────────────────────────────────────────
+unit_aliases:
+  "pieces": "pcs"
+  "piece": "pcs"
+  "nos": "pcs"              # "numbers" — common in Indian B2B catalogs
+  "no.": "pcs"
+  "meters": "m"
+  "metre": "m"
+  "kilograms": "kg"
+  "kgs": "kg"
+
+# ── Compliance fields ────────────────────────────────────────────
+compliance_fields:
+  - supplier_id
+  - contract_ref
+  - hazmat_class            # UN hazmat class if applicable
+  - country_of_origin
+  - hsn_code                # Harmonized System of Nomenclature — for GST
+
+# ── Hazmat classes ───────────────────────────────────────────────
+# UN hazmat classification — required for regulated goods
+valid_hazmat_classes:
+  - "Class 1"               # Explosives
+  - "Class 2"               # Gases
+  - "Class 3"               # Flammable liquids
+  - "Class 4"               # Flammable solids
+  - "Class 8"               # Corrosives
+  - "Class 9"               # Miscellaneous
+  - "Non-Hazardous"
+
+# ── Known categories ─────────────────────────────────────────────
+categories:
+  - Safety Equipment
+  - Industrial Tools
+  - Electrical Components
+  - Raw Materials
+  - MRO Supplies           # Maintenance, Repair, Operations
+  - Packaging Materials
+  - Office Supplies

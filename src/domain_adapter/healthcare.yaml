@@ -1,0 +1,63 @@
+# ════════════════════════════════════════════════════════════════
+#  Domain Adapter — Healthcare / Pharma
+# ════════════════════════════════════════════════════════════════
+
+# ── Brand normalization ──────────────────────────────────────────
+brand_aliases:
+  "cipla ltd": "Cipla"
+  "cipla limited": "Cipla"
+  "sun pharma": "Sun Pharmaceuticals"
+  "sun pharmaceutical": "Sun Pharmaceuticals"
+  "dr reddys": "Dr. Reddy's"
+  "dr. reddys laboratories": "Dr. Reddy's"
+  "lupin ltd": "Lupin"
+  "zydus cadila": "Zydus"
+  "abbott india": "Abbott"
+
+# ── Ingredient normalization ─────────────────────────────────────
+# Same drug molecule has many names — normalize to one
+ingredient_aliases:
+  "acetaminophen": "Paracetamol"     # US name → INN name
+  "tylenol": "Paracetamol"           # brand → molecule
+  "ibuprofen bp": "Ibuprofen"
+  "amoxycillin": "Amoxicillin"       # spelling variant
+  "salbutamol": "Albuterol"
+
+# ── Dosage form normalization ────────────────────────────────────
+dosage_form_aliases:
+  "tab": "Tablet"
+  "tabs": "Tablet"
+  "cap": "Capsule"
+  "caps": "Capsule"
+  "inj": "Injection"
+  "susp": "Suspension"
+  "syr": "Syrup"
+  "oint": "Ointment"
+
+# ── Compliance fields ────────────────────────────────────────────
+# ALL of these must be present and valid before graph write
+compliance_fields:
+  - active_ingredients
+  - contraindications
+  - schedule_class          # OTC | Schedule H | Schedule X
+  - dosage_form
+  - manufacturer_license
+
+# ── Drug schedule classes ────────────────────────────────────────
+valid_schedule_classes:
+  - OTC                     # over the counter
+  - Schedule H              # prescription only
+  - Schedule H1             # controlled prescription
+  - Schedule X              # narcotic / highest control
+
+# ── Known categories ─────────────────────────────────────────────
+categories:
+  - Analgesics
+  - Antibiotics
+  - Antacids
+  - Vitamins & Supplements
+  - Cardiovascular
+  - Dermatology
+  - Ophthalmology
+  - Respiratory
+  - Diabetes Care
