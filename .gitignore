@@ -13,7 +13,7 @@ checkpoints/
 mlruns*/
 evaluation/
 extraction_results/
-extraction
+/extraction
 venv/
 __pycache__/
 *.pyc
