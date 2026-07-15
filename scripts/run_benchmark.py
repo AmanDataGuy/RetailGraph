@@ -1,5 +1,5 @@
 """
-RetailGraph — Phase 13: GraphRAG vs VectorRAG vs Neo4j-only Benchmark
+RetailGraph — GraphRAG vs VectorRAG vs Neo4j-only Benchmark
 Run from project root:
     $env:PYTHONPATH = "C:\\Users\\AMAND\\projects\\RetailGraph"
     python scripts/run_benchmark.py

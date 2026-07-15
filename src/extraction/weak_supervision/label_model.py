@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-# These thresholds come directly from the Phase 3 spec.
+# These thresholds come directly from the weak-supervision spec.
 # >0.85  → confident enough to auto-accept for training data
 # <0.50  → confident enough to auto-reject (not worth human review)
 # 0.50–0.85 → uncertain, route to active learning / human review queue
@@ -382,7 +382,7 @@ def _get_status(prob: float) -> str:
     """
     Convert a probability score into a routing decision.
 
-    This is the core business logic from the Phase 3 spec:
+    This is the core business logic from the weak-supervision spec:
         > 0.85 → auto_accept  — high confidence, use for training
         0.50–0.85 → review    — uncertain, route to human review queue
         < 0.50 → auto_reject  — confident it doesn't apply, discard

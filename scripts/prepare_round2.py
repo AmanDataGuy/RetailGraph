@@ -1,6 +1,6 @@
 """
 RetailGraph - Round 2 Training Data Preparation
-Merges high_conf extractions from Phase 6 with original train.jsonl
+Merges high_conf extractions with original train.jsonl
 Run from project root: python prepare_round2.py
 """
 import json
@@ -53,7 +53,7 @@ low-calorie, caffeine-free, allergen-free"""
 
 
 def clean_prediction(pred: dict) -> dict:
-    """Strip Phase 6 extra fields, keep only schema fields."""
+    """Strip extra fields, keep only schema fields."""
     SCHEMA_FIELDS = {
         "item_name", "price", "quantity_value", "quantity_unit",
         "category", "dietary_tags", "allergen_list", "extraction_confidence"

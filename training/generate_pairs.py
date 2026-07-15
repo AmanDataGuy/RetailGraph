@@ -1,6 +1,6 @@
 # training/generate_pairs.py
 """
-Phase 4.2 — Training Pair Generation.
+Training Pair Generation.
 
 PURPOSE:
     Generates 3,000 high-quality (input → output) training pairs for
@@ -19,8 +19,8 @@ PIPELINE:
     train.csv (75k rows)
         → sample_products()         — 3,000 proportional across 11 categories
         → generate_with_openai()    — GPT-4o-mini
-        → validate_extraction()     — Phase 2 validator (JSON → Pydantic → confidence)
-        → normalize_product()       — Phase 2 normalizer
+        → validate_extraction()     — validator (JSON → Pydantic → confidence)
+        → normalize_product()       — normalizer
         → save_pairs()              — 80/20 train/val split
         → data/training/train.jsonl — 2,400 training pairs
         → data/training/val.jsonl   — 600 validation pairs
@@ -145,7 +145,7 @@ def sample_products(
     else:
         logger.warning(
             "weak_labels.csv not found — falling back to random sampling. "
-            "Run Phase 3 first for proportional sampling."
+            "Run weak supervision first for proportional sampling."
         )
         sampled = df.sample(n=min(n, len(df)), random_state=seed)
 

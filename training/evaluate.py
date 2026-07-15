@@ -1,5 +1,5 @@
 # =============================================================================
-# RetailGraph — Phase 5: Model Evaluation
+# RetailGraph — Model Evaluation
 # =============================================================================
 #
 # What this file does, in plain English:
@@ -633,7 +633,7 @@ def _build_report(
     sep   = "=" * 65
 
     lines.append(sep)
-    lines.append("RETAILGRAPH — PHASE 5 EVALUATION REPORT")
+    lines.append("RETAILGRAPH — EVALUATION REPORT")
     lines.append(sep)
     lines.append(f"Total examples : {total}")
     lines.append(f"  Text-only    : {text_count}")
@@ -677,7 +677,7 @@ def _build_report(
     lines.append("")
 
     if all_passed:
-        lines.append("🎉 ALL FIELDS PASSED — ready for Phase 6!")
+        lines.append("🎉 ALL FIELDS PASSED")
     else:
         lines.append("⚠️  Some fields below target.")
         lines.append("   Add targeted training pairs for failed fields and retrain.")

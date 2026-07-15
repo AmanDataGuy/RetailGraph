@@ -1,5 +1,5 @@
 # =============================================================================
-# RetailGraph — Phase 5: Fine-tuning Qwen2-VL 7B on Seed Data
+# RetailGraph — Fine-tuning Qwen2-VL 7B on Seed Data
 # =============================================================================
 #
 # What this file does, in plain English:

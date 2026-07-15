@@ -1,6 +1,6 @@
 # training/generate_visual_pairs.py
 """
-Phase 4.3 — Visual Training Pair Generation.
+Visual Training Pair Generation.
 
 PURPOSE:
     Generates 500 multimodal (image + text → JSON) training pairs using
@@ -88,7 +88,7 @@ OPENAI_MODEL   = "gpt-4o"
 SLEEP_SECONDS  = 1.0      # GPT-4o rate limits are stricter than mini
 MAX_RETRIES    = 2
 
-# Text length thresholds matching EDA (Phase 1)
+# Text length thresholds matching EDA
 BARE_MAX_CHARS   = 150
 MEDIUM_MAX_CHARS = 600
 
@@ -182,7 +182,7 @@ def load_processed_ids() -> set[int]:
     if not TEXT_PROGRESS_JSONL.exists():
         raise FileNotFoundError(
             f"{TEXT_PROGRESS_JSONL} not found. "
-            "Run generate_pairs.py first (Phase 4.2)."
+            "Run generate_pairs.py first."
         )
 
     processed = set()
@@ -235,7 +235,7 @@ def save_visual_checkpoint(sample_id: int, success: bool) -> None:
 def assign_tier(text_len: int) -> str:
     """
     Assign content tier by text length.
-    Thresholds match Phase 1 EDA findings:
+    Thresholds match EDA findings:
         bare   ≤ 150 chars  (item name only)
         medium 151–600 chars (partial info)
         rich   > 600 chars  (full description)

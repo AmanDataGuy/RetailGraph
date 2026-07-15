@@ -1,5 +1,5 @@
 """
-Phase 4.3 — Synthetic Data Generation for Underrepresented Categories.
+Synthetic Data Generation for Underrepresented Categories.
 
 PURPOSE:
     After generate_pairs.py creates 3,000 real seed pairs, some categories
