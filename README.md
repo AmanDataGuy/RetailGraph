@@ -13,7 +13,6 @@ structured knowledge graph queryable in plain English via a LangGraph + GraphRAG
 [![Neo4j](https://img.shields.io/badge/Neo4j-AuraDB-008CC1?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com)
 [![Qdrant](https://img.shields.io/badge/Qdrant-Vector_Store-dc244c?style=flat-square)](https://qdrant.tech)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C?style=flat-square)](https://langchain-ai.github.io/langgraph/)
-[![LangSmith](https://img.shields.io/badge/LangSmith-Traced-FFD700?style=flat-square)](https://smith.langchain.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-REST-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 
 </div>
@@ -99,7 +98,7 @@ Raw grocery product listings (text + images) go in → a fine-tuned vision-langu
 | Stage | Action | Result |
 |---|---|---|
 | Round 1 | Train on 3,208 GPT-4o-mini pairs | 94.3% overall |
-| Phase 6 | Extract 3,920 products → 2,161 high-conf | 65% confidence pass rate |
+| Pseudo-label | Extract 3,920 products → 2,161 high-conf | 65% confidence pass rate |
 | Round 2 | Retrain on raw pseudo-labels | 91.8% — **degraded** |
 | Fix | GPT-4o-mini verifies category + dietary_tags on 2,161 extractions | 487 categories corrected (22.5%) · 298 tags corrected (13.8%) · cost $0.15 |
 | Round 3 | Retrain on 5,369 verified pairs | 94.2% — restored |
@@ -127,7 +126,6 @@ Raw grocery product listings (text + images) go in → a fine-tuned vision-langu
 | Query types | Filter · Semantic · Analytics · Hybrid |
 | Filter query latency | ~1.7s |
 | Semantic query latency | ~3s |
-| Observability | LangSmith · every node traced · shareable trace URLs |
 | Cypher strategy | Pre-built templates for 80% of queries · Groq-generated for remainder |
 
 ---
@@ -154,8 +152,7 @@ Raw grocery product listings (text + images) go in → a fine-tuned vision-langu
 | Agent framework | LangGraph | 6-node typed state machine |
 | LLM inference | Groq · Llama 3.3 70B | Sub-2s intent extraction + answer formatting |
 | LLM evaluation | LLM-as-Judge (GPT-4o-mini) | Semantic scoring beyond exact string match |
-| Observability | LangSmith | Per-node tracing · latency · token cost |
-| Normalization | RapidFuzz + YAML adapters | Canonical field mapping + fuzzy deduplication |
+| Normalization | RapidFuzz | Canonical field mapping + fuzzy deduplication |
 | Experiment tracking | MLflow | All training rounds logged |
 | Backend | FastAPI | REST API · 5 endpoints |
 | Frontend | Streamlit | NL search UI · product cards · health dashboard |
@@ -170,7 +167,7 @@ git clone https://github.com/AmanDataGuy/RetailGraph
 cd RetailGraph
 pip install -r requirements.txt
 cp .env.example .env
-# fill in NEO4J_URI, NEO4J_PASSWORD, QDRANT_URL, QDRANT_API_KEY, GROQ_API_KEY, LANGCHAIN_API_KEY
+# fill in NEO4J_URI, NEO4J_PASSWORD, QDRANT_URL, QDRANT_API_KEY, GROQ_API_KEY
 ```
 
 ```bash
@@ -189,26 +186,6 @@ FastAPI Swagger UI at `localhost:8000/docs` · Streamlit at `localhost:8501`
 
 ---
 
-## Project Status
-
-| Phase | Description | Status |
-|---|---|---|
-| 0–2 | Foundation · schema · normalization · validation | ✅ Complete |
-| 3 | Weak supervision — 31 Snorkel LFs | ✅ Complete |
-| 4 | Training data — 5,369 verified pairs | ✅ Complete |
-| 5 | Fine-tuning Qwen2-VL 7B — Round 3 (94.2%) | ✅ Complete |
-| 6 | Extraction pipeline — 2,161 high-conf products | ✅ Complete |
-| 7 | Neo4j + Qdrant + GraphRAG hybrid search | ✅ Complete |
-| 8 | LLM-as-Judge evaluation + LangSmith tracing | ✅ Complete |
-| 9 | Kafka real-time streaming | ⏭️ Skipped |
-| 10 | LangGraph agent — Groq + GraphRAG | ✅ Complete |
-| 11 | FastAPI REST API | ✅ Complete |
-| 12 | Streamlit frontend | ✅ Complete |
-| 13 | GraphRAG vs VectorRAG benchmark | ✅ Complete |
-| 14 | Docker + CI/CD | 🔄 Planned |
-
-
----
 
 ## Benchmark — GraphRAG vs VectorRAG vs Neo4j
 
@@ -228,7 +205,7 @@ FastAPI Swagger UI at `localhost:8000/docs` · Streamlit at `localhost:8501`
 | Semantic (similarity-based) | 0 / 7 | 7 / 7 | 7 / 7 |
 | Analytics (aggregations) | 0 / 6 | 6 / 6 | 4 / 6 |
 
-**Key finding:** Vector search alone fails every query because it cannot enforce hard constraints (price limits, dietary tags). GraphRAG matches Graph on multi-constraint and semantic queries, with the 2 failures on pure analytics aggregations where no semantic component exists — pure Cypher is the right tool there. The agent layer (Phase 10) routes analytics queries directly to Neo4j, bypassing Qdrant entirely.
+**Key finding:** Vector search alone fails every query because it cannot enforce hard constraints (price limits, dietary tags). GraphRAG matches Graph on multi-constraint and semantic queries, with the 2 failures on pure analytics aggregations where no semantic component exists — pure Cypher is the right tool there. The agent layer routes analytics queries directly to Neo4j, bypassing Qdrant entirely.
 
 ---
 
