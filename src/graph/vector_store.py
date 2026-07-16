@@ -38,7 +38,9 @@ BATCH_SIZE      = 100
 # ── Client & Collection ───────────────────────────────────────────────────────
 
 def get_client() -> QdrantClient:
-    return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    # timeout=60: the default (~5s) is enough for a local Qdrant but too short for
+    # batched writes to a cloud cluster over the internet, which time out mid-upsert.
+    return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
 
 
 def create_collection(client: QdrantClient) -> None:
