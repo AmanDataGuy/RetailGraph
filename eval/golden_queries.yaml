@@ -1,0 +1,324 @@
+# RetailGraph — golden evaluation set.
+#
+# 30 hand-built queries with expected_result_count and gold_cypher verified
+# directly against the live Neo4j graph (2,160 products / 6,248 relationships,
+# checked 2026-07-26). expected_intent/route describe what the agent SHOULD
+# pick; the eval runner checks the agent's actual choice against these.
+#
+# Two entries (q29, q30) are deliberate known-bug probes: the agent's
+# ALLOWED_TAGS in src/agent/nodes.py includes "keto" and "allergen-free",
+# but the graph's actual DietaryTag nodes are "keto-friendly", and no product
+# carries "allergen-free" at all — so a real user query like "keto snacks"
+# silently returns 0 results today. These are marked known_bug: true — the
+# eval should surface this, not hide it.
+
+- id: q1
+  query: "vegan gluten-free snacks under $10"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 21
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'vegan'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'gluten-free'})
+    WHERE p.price <= 10 RETURN count(p)
+
+- id: q2
+  query: "gluten-free beverages with no peanuts"
+  type: allergen_exclusion
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 31
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Beverages'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'gluten-free'})
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'peanut'}) }
+    RETURN count(p)
+
+- id: q3
+  query: "organic coffee under $15"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 24
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Coffee & Tea'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'organic'})
+    WHERE p.price <= 15 RETURN count(p)
+
+- id: q4
+  query: "show me McCormick products"
+  type: brand_lookup
+  expected_intent: lookup
+  expected_route: cypher
+  expected_result_count: 40
+  gold_cypher: "MATCH (p:Product)-[:MADE_BY]->(b:Brand {name:'McCormick'}) RETURN count(p)"
+
+- id: q5
+  query: "dairy-free condiments and sauces"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 13
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Condiments & Sauces'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'dairy-free'})
+    RETURN count(p)
+
+- id: q6
+  query: "kosher spices under $5"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 2
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Spices & Seasonings'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'kosher'})
+    WHERE p.price <= 5 RETURN count(p)
+
+- id: q7
+  query: "non-GMO snacks with no egg or soy"
+  type: allergen_exclusion
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 86
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'non-GMO'})
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'egg'}) }
+      AND NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'soy'}) }
+    RETURN count(p)
+
+- id: q8
+  query: "vegan snacks under $10"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 29
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'vegan'})
+    WHERE p.price <= 10 RETURN count(p)
+
+- id: q9
+  query: "gluten-free beverages with no nuts under $5"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: null
+  gold_cypher: null
+  notes: "Left ungated on purpose — checks whether the agent's allergen-name normalization handles 'nuts' vs graph's 'tree nut'."
+
+- id: q10
+  query: "products made by TerraVita"
+  type: brand_lookup
+  expected_intent: lookup
+  expected_route: cypher
+  expected_result_count: 116
+  gold_cypher: "MATCH (p:Product)-[:MADE_BY]->(b:Brand {name:'TerraVita'}) RETURN count(p)"
+
+- id: q11
+  query: "something similar to sriracha"
+  type: semantic
+  expected_intent: semantic
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+  notes: "No ground-truth Cypher — semantic path. Scored by RAGAS (faithfulness/relevancy), not execution accuracy."
+
+- id: q12
+  query: "find something like protein bars"
+  type: semantic
+  expected_intent: semantic
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+
+- id: q13
+  query: "hot sauce alternatives"
+  type: semantic
+  expected_intent: semantic
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+
+- id: q14
+  query: "kombucha style drinks"
+  type: semantic
+  expected_intent: semantic
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+
+- id: q15
+  query: "vegan snacks similar to protein bars under $10"
+  type: hybrid
+  expected_intent: hybrid
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+  notes: "Filter-first GraphRAG path (Neo4j filter -> Qdrant re-rank)."
+
+- id: q16
+  query: "gluten-free condiments similar to hot sauce"
+  type: hybrid
+  expected_intent: hybrid
+  expected_route: graphrag
+  expected_result_count: null
+  gold_cypher: null
+
+- id: q17
+  query: "which category has the most products"
+  type: analytics
+  expected_intent: analytics
+  expected_route: analytics
+  expected_result_count: null
+  gold_answer_contains: ["Snacks & Candy", "580"]
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category)
+    RETURN c.name, count(p) ORDER BY count(p) DESC LIMIT 1
+
+- id: q18
+  query: "which category has the highest average price"
+  type: analytics
+  expected_intent: analytics
+  expected_route: analytics
+  expected_result_count: null
+  gold_answer_contains: ["Coffee & Tea", "32"]
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category)
+    RETURN c.name, round(avg(p.price),2) ORDER BY avg(p.price) DESC LIMIT 1
+
+- id: q19
+  query: "top brands by product count"
+  type: analytics
+  expected_intent: analytics
+  expected_route: analytics
+  expected_result_count: null
+  gold_answer_contains: ["TerraVita", "116"]
+  gold_cypher: >
+    MATCH (p:Product)-[:MADE_BY]->(b:Brand)
+    RETURN b.name, count(p) ORDER BY count(p) DESC LIMIT 1
+
+- id: q20
+  query: "most common dietary tags"
+  type: analytics
+  expected_intent: analytics
+  expected_route: analytics
+  expected_result_count: null
+  gold_answer_contains: ["gluten-free", "426"]
+  gold_cypher: >
+    MATCH (p:Product)-[:HAS_TAG]->(t:DietaryTag)
+    RETURN t.name, count(p) ORDER BY count(p) DESC LIMIT 1
+
+- id: q21
+  query: "what categories does McCormick sell in"
+  type: analytics
+  expected_intent: analytics
+  expected_route: analytics
+  expected_result_count: 6
+  gold_cypher: >
+    MATCH (p:Product)-[:MADE_BY]->(b:Brand {name:'McCormick'})
+    MATCH (p)-[:BELONGS_TO]->(c:Category)
+    RETURN count(DISTINCT c.name)
+  notes: "6 named categories + 1 'Unknown' bucket = 7 distinct rows in the raw graph; the agent's analytics templates only report named categories, so 6 is the expected surfaced answer."
+
+- id: q22
+  query: "organic snacks under $3"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: null
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'organic'})
+    WHERE p.price <= 3 RETURN count(p)
+
+- id: q23
+  query: "kosher gluten-free products"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: null
+  gold_cypher: >
+    MATCH (p:Product)
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'kosher'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'gluten-free'})
+    RETURN count(p)
+
+- id: q24
+  query: "high protein snacks with no soy"
+  type: allergen_exclusion
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: null
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'high-protein'})
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'soy'}) }
+    RETURN count(p)
+
+- id: q25
+  query: "beverages under $2"
+  type: multi_constraint_filter
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: null
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Beverages'})
+    WHERE p.price <= 2 RETURN count(p)
+
+- id: q26
+  query: "products from Goya"
+  type: brand_lookup
+  expected_intent: lookup
+  expected_route: cypher
+  expected_result_count: 16
+  gold_cypher: "MATCH (p:Product)-[:MADE_BY]->(b:Brand {name:'Goya'}) RETURN count(p)"
+
+- id: q27
+  query: "keto vegan caffeine-free supplements under $1"
+  type: adversarial_empty
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 0
+  gold_cypher: null
+  notes: "Over-constrained on purpose (also hits the keto/keto-friendly mismatch, see q29) — must return 0 gracefully, not error."
+
+- id: q28
+  query: "asdkjfh qwerty products xyz123"
+  type: adversarial_empty
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 0
+  gold_cypher: null
+  notes: "Nonsense query — must degrade to 'no results found', not crash or hallucinate products."
+
+- id: q29
+  query: "keto snacks"
+  type: known_bug_probe
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 0
+  known_bug: true
+  gold_cypher: "MATCH (p:Product)-[:HAS_TAG]->(:DietaryTag {name:'keto'}) RETURN count(p)"
+  notes: >
+    KNOWN BUG: agent's ALLOWED_TAGS (src/agent/nodes.py) includes "keto", but
+    the graph's real tag is "keto-friendly" (48 products have it). This query
+    is expected to return 0 today. Fix = normalize "keto"->"keto-friendly" in
+    extract_intent, or rename the DietaryTag node. Left unfixed intentionally
+    so the eval measures and tracks this regression until it's addressed.
+
+- id: q30
+  query: "allergen-free products"
+  type: known_bug_probe
+  expected_intent: filter
+  expected_route: cypher
+  expected_result_count: 0
+  known_bug: true
+  gold_cypher: "MATCH (p:Product)-[:HAS_TAG]->(:DietaryTag {name:'allergen-free'}) RETURN count(p)"
+  notes: >
+    KNOWN BUG: "allergen-free" is in the agent's ALLOWED_TAGS but no product
+    in the graph carries that tag (0 matches) — it was never populated during
+    extraction/training. Expected to return 0 today.

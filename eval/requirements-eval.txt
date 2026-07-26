@@ -1,0 +1,29 @@
+# Eval-only dependencies for eval/score_ragas.py (RAGAS scoring).
+#
+# Installed into a SEPARATE venv (venv-eval/), never the app's venv/. Reason:
+# ragas requires langchain, and every combination we tried that matches the
+# app's pinned langchain==0.2.3 / langgraph==0.1.6 conflicts with ragas's
+# latest release (0.4.3 hard-imports langchain_community.chat_models.vertexai,
+# a submodule removed in langchain-community's ongoing deprecation — a live
+# upstream incompatibility, confirmed 2026-07-26, not a local config issue).
+#
+# This pinned set (ragas 0.1.21, the pre-refactor "classic" API) resolves
+# cleanly on its own and needs no OpenAI key: the LLM judge is Groq
+# (langchain-groq -> ChatGraq) and embeddings are local MiniLM
+# (sentence-transformers via langchain_community.embeddings.HuggingFaceEmbeddings),
+# reusing the same embedding model src/graph/hybrid_search.py already loads.
+#
+# Setup:
+#   python -m venv venv-eval
+#   venv-eval/Scripts/pip install -r eval/requirements-eval.txt
+#
+# Run:
+#   venv/Scripts/python      eval/collect_results.py   # main venv — drives the real agent
+#   venv-eval/Scripts/python eval/score_ragas.py        # eval venv — scores with RAGAS
+# or just: python eval/run_eval.py   (orchestrates both, see that file)
+ragas==0.1.21
+langchain==0.2.3
+langchain-groq==0.1.9
+langchain-community==0.2.4
+sentence-transformers==5.6.1
+datasets==5.0.0

@@ -6,6 +6,7 @@
 # ── Local-only working docs (not for the public repo) ─────────────────────────
 plan_ahead.md
 ROADMAP.md
+EVAL_REPORT.md
 
 # ── Large data (use DVC or external storage) ──────────────────────────────────
 data/images/
@@ -16,6 +17,7 @@ evaluation/
 extraction_results/
 /extraction
 venv/
+venv-eval/
 __pycache__/
 *.pyc
 *.log
