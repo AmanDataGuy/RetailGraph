@@ -29,7 +29,8 @@ class AgentState(TypedDict):
     ]]
 
     # ── Cypher path (Node 3a) ─────────────────────────────────────────────
-    cypher_query: Optional[str]         # generated Cypher string
+    cypher_query: Optional[str]         # generated Cypher string (uses $bound params, never inlined values)
+    cypher_params: Optional[dict]       # bound parameters for cypher_query
     cypher_valid: Optional[bool]        # passed validation?
     cypher_error: Optional[str]         # validation error if any
     cypher_retries: int                 # retry counter (max 2)
@@ -57,6 +58,7 @@ def make_initial_state(query: str) -> AgentState:
         entities=None,
         route=None,
         cypher_query=None,
+        cypher_params=None,
         cypher_valid=None,
         cypher_error=None,
         cypher_retries=0,

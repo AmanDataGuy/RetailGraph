@@ -191,22 +191,34 @@ def build_cypher(state: AgentState) -> dict:
     log.info(f"[Node 3a] build_cypher | entities={entities}")
 
     # ── Try pre-built templates first (faster, free, reliable) ────────────
-    cypher = _try_template(entities)
+    template = _try_template(entities)
 
-    if cypher:
+    if template:
+        cypher, params = template
         log.info("[Node 3a] Using pre-built template")
         return {
             "cypher_query": cypher,
+            "cypher_params": params,
             "cypher_valid": True,
             "route": "cypher",
         }
 
     # ── Fall back to LLM-generated Cypher ─────────────────────────────────
+    retries = state.get("cypher_retries", 0)
+    prev_error = state.get("cypher_error")
+
     prompt = (
         f"User query: {query}\n"
         f"Extracted entities: {json.dumps(entities)}\n"
         "Generate the Cypher query."
     )
+    if retries and prev_error:
+        # Feed the previous failure back in so a retry can actually produce a
+        # different query, instead of regenerating the same one deterministically.
+        prompt += (
+            f"\n\nYour previous attempt failed with this error:\n{prev_error}\n"
+            "Fix the query so it avoids this error."
+        )
 
     result = generate_json(system=CYPHER_SYSTEM, prompt=prompt)
     cypher = result.get("cypher", "")
@@ -214,6 +226,7 @@ def build_cypher(state: AgentState) -> dict:
     if not cypher:
         return {
             "cypher_query": None,
+            "cypher_params": {},
             "cypher_valid": False,
             "cypher_error": "LLM returned empty Cypher",
             "route": "cypher",
@@ -225,15 +238,20 @@ def build_cypher(state: AgentState) -> dict:
 
     return {
         "cypher_query": cypher,
+        "cypher_params": {},
         "cypher_valid": valid,
         "cypher_error": error if not valid else None,
         "route": "cypher",
     }
 
 
-def _try_template(entities: dict) -> str | None:
+def _try_template(entities: dict) -> tuple[str, dict] | None:
     """
-    Returns a pre-built Cypher string if entities match a known pattern.
+    Returns a (cypher, params) pair if entities match a known pattern.
+    All user-derived values (brand, category, tags, allergens) are passed as
+    bound $params rather than interpolated into the query string — an
+    f-string here would let a value like "Reese's" break the query, or let
+    a crafted entity value inject arbitrary Cypher.
     Returns None if no template matches → falls back to LLM.
     """
     tags      = entities.get("dietary_tags", [])
@@ -245,20 +263,22 @@ def _try_template(entities: dict) -> str | None:
 
     # Brand lookup
     if brand and not tags and not category:
-        return (
-            f"MATCH (p:Product)-[:MADE_BY]->(b:Brand) "
-            f"WHERE toLower(b.name) = toLower('{brand}') "
-            f"OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category) "
-            f"RETURN p.item_name AS item_name, p.price AS price, "
-            f"p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
-            f"p.image_url AS image_url, "
-            f"b.name AS brand, c.name AS category "
-            f"ORDER BY p.price ASC LIMIT 10"
+        cypher = (
+            "MATCH (p:Product)-[:MADE_BY]->(b:Brand) "
+            "WHERE toLower(b.name) = toLower($brand) "
+            "OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category) "
+            "RETURN p.item_name AS item_name, p.price AS price, "
+            "p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
+            "p.image_url AS image_url, "
+            "b.name AS brand, c.name AS category "
+            "ORDER BY p.price ASC LIMIT 10"
         )
+        return cypher, {"brand": brand}
 
     # Build dynamic MATCH + WHERE
     match_clauses = ["MATCH (p:Product)"]
     where_clauses = []
+    params: dict = {}
     return_clause = (
         "RETURN p.item_name AS item_name, p.price AS price, "
         "p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
@@ -268,28 +288,29 @@ def _try_template(entities: dict) -> str | None:
     )
 
     if category:
-        match_clauses.append(
-            f"MATCH (p)-[:BELONGS_TO]->(c:Category {{name: '{category}'}})"
-        )
+        match_clauses.append("MATCH (p)-[:BELONGS_TO]->(c:Category {name: $category})")
+        params["category"] = category
     else:
         match_clauses.append("OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)")
 
     match_clauses.append("OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)")
 
-    for tag in tags:
-        match_clauses.append(
-            f"MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: '{tag}'}})"
-        )
+    for i, tag in enumerate(tags):
+        match_clauses.append(f"MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: $tag_{i}}})")
+        params[f"tag_{i}"] = tag
 
     if max_p is not None:
-        where_clauses.append(f"p.price <= {max_p}")
+        where_clauses.append("p.price <= $max_price")
+        params["max_price"] = max_p
     if min_p is not None:
-        where_clauses.append(f"p.price >= {min_p}")
+        where_clauses.append("p.price >= $min_price")
+        params["min_price"] = min_p
 
-    for allergen in allergens:
+    for i, allergen in enumerate(allergens):
         where_clauses.append(
-            f"NOT EXISTS {{ MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {{name: '{allergen}'}}) }}"
+            f"NOT EXISTS {{ MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {{name: $excl_{i}}}) }}"
         )
+        params[f"excl_{i}"] = allergen
 
     cypher = "\n".join(match_clauses)
     if where_clauses:
@@ -298,7 +319,7 @@ def _try_template(entities: dict) -> str | None:
 
     # Only return template if at least one constraint was applied
     if tags or category or max_p or min_p or allergens or brand:
-        return cypher
+        return cypher, params
 
     return None  # no constraints → let LLM handle it
 
@@ -422,6 +443,7 @@ def execute_query(state: AgentState) -> dict:
     load_dotenv()
 
     cypher  = state.get("cypher_query")
+    params  = state.get("cypher_params") or {}
     valid   = state.get("cypher_valid", False)
     retries = state.get("cypher_retries", 0)
 
@@ -445,7 +467,7 @@ def execute_query(state: AgentState) -> dict:
 
     try:
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
-            result = session.run(cypher)
+            result = session.run(cypher, params)
             records = [dict(r) for r in result]
 
         log.info(f"[Node 4] Neo4j returned {len(records)} records")
