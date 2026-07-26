@@ -1,0 +1,15 @@
+# Native Streamlit theme config — read at startup, before the script runs.
+# This is the fix for a real bug: the previous approach injected white/light
+# CSS via st.markdown() at the top of app.py, but Streamlit's own default
+# theme (dark here) still paints first on every rerun before that CSS
+# re-applies, causing a visible flash back to dark on every interaction
+# (e.g. clicking "Search"). Setting the theme here removes the race entirely
+# — Streamlit renders light from the first frame, every rerun, no flash.
+
+[theme]
+base = "light"
+primaryColor = "#4f8ef7"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#fafafa"
+textColor = "#1a1a1a"
+font = "sans serif"
