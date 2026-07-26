@@ -18,16 +18,33 @@ st.set_page_config(
 
 API_URL = "http://127.0.0.1:8000"
 
-# ── Custom CSS ─────────────────────────────────────────────────────────────
+# ── Custom CSS — white, minimal, standard system font ───────────────────────
 st.markdown("""
 <style>
-    /* Main background */
-    .stApp { background-color: #0f1117; }
+    /* Main background + default text color (Streamlit's own theme otherwise
+       keeps its light/dark-mode text color, which reads as washed-out on a
+       white background) */
+    .stApp { background-color: #ffffff; }
+    .stApp, .stApp p, .stApp span, .stApp li, .stApp label,
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+    [data-testid="stMarkdownContainer"] { color: #1a1a1a; }
+
+    /* Sidebar background + text (Streamlit renders this as a separate container) */
+    [data-testid="stSidebar"] {
+        background-color: #fafafa;
+        border-right: 1px solid #e0e0e0;
+    }
+    [data-testid="stSidebar"] * { color: #1a1a1a; }
+    [data-testid="stSidebar"] button {
+        background-color: #ffffff;
+        border: 1px solid #d0d0d0;
+        color: #1a1a1a;
+    }
 
     /* Product card */
     .product-card {
-        background: #1e2130;
-        border: 1px solid #2e3250;
+        background: #ffffff;
+        border: 1px solid #e0e0e0;
         border-radius: 12px;
         padding: 14px;
         margin-bottom: 12px;
@@ -39,7 +56,7 @@ st.markdown("""
     .product-name {
         font-size: 0.85rem;
         font-weight: 600;
-        color: #e8eaf6;
+        color: #1a1a1a;
         margin: 8px 0 4px 0;
         line-height: 1.3;
         min-height: 2.6em;
@@ -47,8 +64,8 @@ st.markdown("""
 
     /* Price badge */
     .price-badge {
-        background: #1a3a1a;
-        color: #4caf50;
+        background: #e8f5e9;
+        color: #2e7d32;
         border-radius: 6px;
         padding: 3px 8px;
         font-size: 0.9rem;
@@ -59,8 +76,8 @@ st.markdown("""
 
     /* Tag pill */
     .tag-pill {
-        background: #1a2a3a;
-        color: #64b5f6;
+        background: #e3f2fd;
+        color: #1565c0;
         border-radius: 20px;
         padding: 2px 8px;
         font-size: 0.7rem;
@@ -70,34 +87,34 @@ st.markdown("""
 
     /* Category label */
     .category-label {
-        color: #9e9e9e;
+        color: #757575;
         font-size: 0.75rem;
         margin: 4px 0;
     }
 
     /* Answer box */
     .answer-box {
-        background: #1e2130;
+        background: #f5f7fa;
         border-left: 4px solid #4f8ef7;
         border-radius: 0 8px 8px 0;
         padding: 16px 20px;
         margin: 16px 0;
-        color: #e8eaf6;
+        color: #1a1a1a;
         font-size: 1rem;
         line-height: 1.6;
     }
 
     /* Sidebar stat */
     .stat-box {
-        background: #1e2130;
+        background: #f5f7fa;
         border-radius: 8px;
         padding: 10px 14px;
         margin: 6px 0;
         font-size: 0.8rem;
-        color: #b0b8d4;
+        color: #333333;
     }
     .stat-label {
-        color: #9e9e9e;
+        color: #757575;
         font-size: 0.7rem;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -105,13 +122,13 @@ st.markdown("""
 
     /* Cypher block */
     .cypher-block {
-        background: #0d1117;
-        border: 1px solid #2e3250;
+        background: #f5f7fa;
+        border: 1px solid #e0e0e0;
         border-radius: 6px;
         padding: 10px;
         font-family: monospace;
         font-size: 0.72rem;
-        color: #79c0ff;
+        color: #0b5394;
         white-space: pre-wrap;
         word-break: break-word;
         margin-top: 4px;
@@ -124,10 +141,10 @@ st.markdown("""
 
     /* Input box */
     .stTextInput > div > div > input {
-        background-color: #1e2130;
-        border: 1px solid #2e3250;
+        background-color: #ffffff;
+        border: 1px solid #d0d0d0;
         border-radius: 8px;
-        color: #e8eaf6;
+        color: #1a1a1a;
         font-size: 1rem;
         padding: 12px 16px;
     }
@@ -181,9 +198,9 @@ def render_product_card(product: dict):
             st.markdown("🖼️", unsafe_allow_html=True)
     else:
         st.markdown(
-            "<div style='background:#2a2a3a;border-radius:8px;height:120px;"
+            "<div style='background:#f0f0f0;border-radius:8px;height:120px;"
             "display:flex;align-items:center;justify-content:center;"
-            "color:#555;font-size:2rem;'>🛒</div>",
+            "color:#aaaaaa;font-size:2rem;'>🛒</div>",
             unsafe_allow_html=True
         )
 
