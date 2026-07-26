@@ -153,8 +153,8 @@ class WeakLabelResult:
     The complete weak label output for one product row.
 
     After the pipeline runs, every product gets one of these.
-    The active_learning_query.py script in Step 3.3 reads
-    tag_probs and category_prob to build the uncertainty score.
+    tag_probs and category_prob feed the uncertainty score used
+    to pick which low-confidence rows go to human review.
 
     Attributes:
         sample_id       — original dataset ID from train.csv
@@ -479,7 +479,7 @@ def save_labeled_output(results: list[WeakLabelResult]) -> None:
         tag_statuses (JSON string)
 
     The pipe separator for dietary_tags avoids CSV quoting issues
-    with commas. active_learning_query.py reads this file directly.
+    with commas.
 
     Args:
         results: list of WeakLabelResult from build_results()

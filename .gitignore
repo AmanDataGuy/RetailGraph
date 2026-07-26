@@ -5,6 +5,7 @@
 
 # ── Local-only working docs (not for the public repo) ─────────────────────────
 plan_ahead.md
+ROADMAP.md
 
 # ── Large data (use DVC or external storage) ──────────────────────────────────
 data/images/
