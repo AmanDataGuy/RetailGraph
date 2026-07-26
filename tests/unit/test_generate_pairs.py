@@ -3,10 +3,10 @@
 Unit tests for training/generate_pairs.py.
 
 Testing strategy:
-    - We NEVER call the real Groq API in tests — all LLM calls are mocked.
+    - We NEVER call the real OpenAI API in tests — all LLM calls are mocked.
     - We test each function in isolation: sampling, extraction logic,
       pair formatting, checkpointing, splitting, saving.
-    - Integration test runs the full pipeline with mocked Groq client
+    - Integration test runs the full pipeline with mocked OpenAI client
       and a 5-row synthetic DataFrame.
 """
 
@@ -22,10 +22,10 @@ from unittest.mock import MagicMock, patch
 from training.generate_pairs import (
     TARGET_PAIRS,
     TRAIN_RATIO,
-    GROQ_MODEL,
+    OPENAI_MODEL,
     sample_products,
-    build_groq_client,
-    call_groq,
+    build_openai_client,
+    call_openai,
     extract_product,
     split_pairs,
     save_pair,
@@ -68,8 +68,8 @@ def valid_entity_json():
 
 
 @pytest.fixture
-def mock_groq_client(valid_entity_json):
-    """Mock Groq client that always returns valid JSON."""
+def mock_openai_client(valid_entity_json):
+    """Mock OpenAI client that always returns valid JSON."""
     client = MagicMock()
     choice = MagicMock()
     choice.message.content = valid_entity_json
@@ -115,51 +115,49 @@ class TestSampleProducts:
         assert "catalog_content" in result.columns
 
 
-# ── build_groq_client Tests ───────────────────────────────────────────────────
+# ── build_openai_client Tests ───────────────────────────────────────────────────
 
-class TestBuildGroqClient:
+class TestBuildOpenAIClient:
 
     def test_raises_if_no_api_key(self):
-        with patch.dict(os.environ, {}, clear=True):
-            # Remove GROQ_API_KEY if present
-            env = {k: v for k, v in os.environ.items() if k != "GROQ_API_KEY"}
-            with patch.dict(os.environ, env, clear=True):
-                with pytest.raises(EnvironmentError, match="GROQ_API_KEY"):
-                    build_groq_client()
+        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+        with patch.dict(os.environ, env, clear=True):
+            with pytest.raises(EnvironmentError, match="OPENAI_API_KEY"):
+                build_openai_client()
 
-    def test_returns_groq_client_with_valid_key(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "test_key_123"}):
-            with patch("training.generate_pairs.Groq") as mock_groq:
-                mock_groq.return_value = MagicMock()
-                client = build_groq_client()
+    def test_returns_openai_client_with_valid_key(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test_key_123"}):
+            with patch("training.generate_pairs.OpenAI") as mock_openai:
+                mock_openai.return_value = MagicMock()
+                client = build_openai_client()
                 assert client is not None
-                mock_groq.assert_called_once_with(api_key="test_key_123")
+                mock_openai.assert_called_once_with(api_key="test_key_123")
 
 
-# ── call_groq Tests ───────────────────────────────────────────────────────────
+# ── call_openai Tests ───────────────────────────────────────────────────────────
 
-class TestCallGroq:
+class TestCallOpenAI:
 
-    def test_returns_string(self, mock_groq_client, valid_entity_json):
+    def test_returns_string(self, mock_openai_client, valid_entity_json):
         messages = [{"role": "user", "content": "test"}]
-        result   = call_groq(mock_groq_client, messages)
+        result   = call_openai(mock_openai_client, messages)
         assert isinstance(result, str)
 
-    def test_returns_model_content(self, mock_groq_client, valid_entity_json):
+    def test_returns_model_content(self, mock_openai_client, valid_entity_json):
         messages = [{"role": "user", "content": "test"}]
-        result   = call_groq(mock_groq_client, messages)
+        result   = call_openai(mock_openai_client, messages)
         assert result == valid_entity_json.strip()
 
-    def test_calls_create_with_correct_model(self, mock_groq_client):
+    def test_calls_create_with_correct_model(self, mock_openai_client):
         messages = [{"role": "user", "content": "test"}]
-        call_groq(mock_groq_client, messages, model=GROQ_MODEL)
-        call_args = mock_groq_client.chat.completions.create.call_args
-        assert call_args.kwargs["model"] == GROQ_MODEL
+        call_openai(mock_openai_client, messages, model=OPENAI_MODEL)
+        call_args = mock_openai_client.chat.completions.create.call_args
+        assert call_args.kwargs["model"] == OPENAI_MODEL
 
-    def test_calls_create_with_temperature_zero(self, mock_groq_client):
+    def test_calls_create_with_temperature_zero(self, mock_openai_client):
         messages = [{"role": "user", "content": "test"}]
-        call_groq(mock_groq_client, messages)
-        call_args = mock_groq_client.chat.completions.create.call_args
+        call_openai(mock_openai_client, messages)
+        call_args = mock_openai_client.chat.completions.create.call_args
         assert call_args.kwargs["temperature"] == 0
 
 
@@ -167,9 +165,9 @@ class TestCallGroq:
 
 class TestExtractProduct:
 
-    def test_success_returns_true_and_dict(self, mock_groq_client):
+    def test_success_returns_true_and_dict(self, mock_openai_client):
         success, entity, raw = extract_product(
-            client=mock_groq_client,
+            client=mock_openai_client,
             sample_id=1,
             catalog_content="Item Name: McCormick Garlic Powder\nValue: 3.12\nUnit: Ounce",
             price=4.99,
@@ -179,9 +177,9 @@ class TestExtractProduct:
         assert isinstance(entity, dict)
         assert "item_name" in entity
 
-    def test_success_entity_has_required_fields(self, mock_groq_client):
+    def test_success_entity_has_required_fields(self, mock_openai_client):
         success, entity, raw = extract_product(
-            client=mock_groq_client,
+            client=mock_openai_client,
             sample_id=1,
             catalog_content="Item Name: Test\nValue: 1",
             price=1.99,
@@ -402,15 +400,15 @@ class TestCheckpoint:
 
 class TestRunGeneration:
     """
-    Full pipeline test with mocked Groq client and tmp_path for file I/O.
+    Full pipeline test with mocked OpenAI client and tmp_path for file I/O.
     Tests that all pieces wire together correctly end to end.
     """
 
-    def test_returns_summary_dict(self, small_df, mock_groq_client, tmp_path):
+    def test_returns_summary_dict(self, small_df, mock_openai_client, tmp_path):
         train_csv = tmp_path / "train.csv"
         small_df.to_csv(train_csv, index=False)
 
-        with patch("training.generate_pairs.build_groq_client", return_value=mock_groq_client), \
+        with patch("training.generate_pairs.build_openai_client", return_value=mock_openai_client), \
              patch("training.generate_pairs.TRAIN_JSONL",     tmp_path / "train.jsonl"), \
              patch("training.generate_pairs.VAL_JSONL",       tmp_path / "val.jsonl"), \
              patch("training.generate_pairs.FAILED_CSV",      tmp_path / "failed.csv"), \
@@ -426,12 +424,12 @@ class TestRunGeneration:
         assert "train_pairs" in summary
         assert "val_pairs" in summary
 
-    def test_train_jsonl_created(self, small_df, mock_groq_client, tmp_path):
+    def test_train_jsonl_created(self, small_df, mock_openai_client, tmp_path):
         train_csv  = tmp_path / "train.csv"
         train_jsonl = tmp_path / "train.jsonl"
         small_df.to_csv(train_csv, index=False)
 
-        with patch("training.generate_pairs.build_groq_client", return_value=mock_groq_client), \
+        with patch("training.generate_pairs.build_openai_client", return_value=mock_openai_client), \
              patch("training.generate_pairs.TRAIN_JSONL",     train_jsonl), \
              patch("training.generate_pairs.VAL_JSONL",       tmp_path / "val.jsonl"), \
              patch("training.generate_pairs.FAILED_CSV",      tmp_path / "failed.csv"), \
@@ -443,11 +441,11 @@ class TestRunGeneration:
 
         assert train_jsonl.exists()
 
-    def test_success_rate_in_summary(self, small_df, mock_groq_client, tmp_path):
+    def test_success_rate_in_summary(self, small_df, mock_openai_client, tmp_path):
         train_csv = tmp_path / "train.csv"
         small_df.to_csv(train_csv, index=False)
 
-        with patch("training.generate_pairs.build_groq_client", return_value=mock_groq_client), \
+        with patch("training.generate_pairs.build_openai_client", return_value=mock_openai_client), \
              patch("training.generate_pairs.TRAIN_JSONL",     tmp_path / "train.jsonl"), \
              patch("training.generate_pairs.VAL_JSONL",       tmp_path / "val.jsonl"), \
              patch("training.generate_pairs.FAILED_CSV",      tmp_path / "failed.csv"), \
@@ -459,11 +457,11 @@ class TestRunGeneration:
 
         assert 0.0 <= summary["success_rate"] <= 1.0
 
-    def test_train_val_split_adds_up(self, small_df, mock_groq_client, tmp_path):
+    def test_train_val_split_adds_up(self, small_df, mock_openai_client, tmp_path):
         train_csv = tmp_path / "train.csv"
         small_df.to_csv(train_csv, index=False)
 
-        with patch("training.generate_pairs.build_groq_client", return_value=mock_groq_client), \
+        with patch("training.generate_pairs.build_openai_client", return_value=mock_openai_client), \
              patch("training.generate_pairs.TRAIN_JSONL",     tmp_path / "train.jsonl"), \
              patch("training.generate_pairs.VAL_JSONL",       tmp_path / "val.jsonl"), \
              patch("training.generate_pairs.FAILED_CSV",      tmp_path / "failed.csv"), \

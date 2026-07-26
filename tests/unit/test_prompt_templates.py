@@ -63,9 +63,9 @@ class TestAllowedCategories:
 
 class TestAllowedDietaryTags:
 
-    def test_has_fifteen_tags(self):
-        # Must match DIETARY_TAGS in label_model.py — 15 tags
-        assert len(ALLOWED_DIETARY_TAGS) == 15
+    def test_has_sixteen_tags(self):
+        # Must match DIETARY_TAGS in label_model.py — 16 tags
+        assert len(ALLOWED_DIETARY_TAGS) == 16
 
     def test_contains_organic(self):
         assert "organic" in ALLOWED_DIETARY_TAGS

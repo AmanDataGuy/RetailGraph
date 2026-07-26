@@ -132,7 +132,7 @@ Protein Bars & Snacks
 ## ALLOWED DIETARY TAGS — only use these exact strings
 organic, kosher, gluten-free, non-GMO, vegan, keto, paleo,
 dairy-free, sugar-free, nut-free, soy-free, high-protein,
-low-calorie, caffeine-free, allergen-free
+low-calorie, caffeine-free, allergen-free, cruelty-free
 
 ## CONFIDENCE CALIBRATION
 Set extraction_confidence based on how much information is available:
