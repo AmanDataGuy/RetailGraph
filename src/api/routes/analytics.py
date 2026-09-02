@@ -49,7 +49,7 @@ async def get_analytics():
 
     except Exception as e:
         log.error(f"Analytics error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Analytics error — please try again.")
 
     categories = [
         CategoryStat(
