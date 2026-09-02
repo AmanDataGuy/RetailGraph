@@ -55,7 +55,7 @@ async def search_products(request: SearchRequest):
             # Filter only → pure Cypher via GraphQueries
             gq  = GraphQueries()
             raw = gq.get_products(
-                dietary_tags      = request.dietary_tags or None,
+                tags              = request.dietary_tags or None,
                 category          = request.category,
                 max_price         = request.max_price,
                 min_price         = request.min_price,
@@ -67,7 +67,7 @@ async def search_products(request: SearchRequest):
 
     except Exception as e:
         log.error(f"Search error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Search error — please try again.")
 
     results = []
     for r in raw:
@@ -154,7 +154,7 @@ async def get_product(product_id: str):
         raise
     except Exception as e:
         log.error(f"Product lookup error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Product lookup error — please try again.")
     finally:
         driver.close()
 
