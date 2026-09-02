@@ -41,6 +41,7 @@ class GraphQueries:
         max_price: float = None,
         min_price: float = None,
         exclude_allergens: list[str] = None,
+        exclude_tags: list[str] = None,
         brand: str = None,
         limit: int = 20,
     ) -> list[dict]:
@@ -71,6 +72,13 @@ class GraphQueries:
                     f"NOT EXISTS {{ MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {{name: $excl_{i}}}) }}"
                 )
                 params[f"excl_{i}"] = allergen.lower()
+
+        if exclude_tags:
+            for i, tag in enumerate(exclude_tags):
+                where_clauses.append(
+                    f"NOT EXISTS {{ MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: $excl_tag_{i}}}) }}"
+                )
+                params[f"excl_tag_{i}"] = tag
 
         if max_price is not None:
             where_clauses.append("p.price <= $max_price")
