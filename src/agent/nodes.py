@@ -21,21 +21,37 @@ from src.agent.llm import generate, generate_json
 
 log = logging.getLogger("retailgraph.nodes")
 
-# ── Allowed vocabulary (mirrors training schema) ───────────────────────────
+# ── Allowed vocabulary ──────────────────────────────────────────────────────
+# Verified directly against the live Neo4j graph (MATCH (c:Category) / MATCH
+# (t:DietaryTag), 2026-08-21) rather than any code-side prompt text — an
+# earlier pass here matched src/extraction/extractor.py's current
+# SYSTEM_PROMPT, which turned out NOT to match what's actually in the graph
+# (e.g. "Personal Care" not "Personal Care & Beauty", "Bakery & Bread" not
+# "Bread & Bakery", no "Breakfast & Cereal"/"Oils & Vinegars"/"Non-Food" at
+# all) — the model's real output on the live catalog didn't follow that
+# prompt's vocabulary exactly, so the prompt text isn't reliable ground
+# truth. The live graph is. Re-verify with the same query if the catalog is
+# ever re-ingested.
 ALLOWED_CATEGORIES = {
-    "Beverages", "Coffee & Tea", "Snacks & Candy", "Condiments & Sauces",
-    "Grains, Beans & Legumes", "Baking & Cooking", "Spices & Seasonings",
-    "Supplements & Health", "Nuts & Seeds", "Personal Care & Beauty",
-    "Protein Bars & Snacks", "Dairy & Eggs", "Frozen Foods",
-    "Fruits & Vegetables", "Meat & Seafood", "Baby & Kids",
-    "Household & Cleaning", "Bakery & Bread", "Pet Supplies",
+    "Snacks & Candy", "Coffee & Tea", "Condiments & Sauces", "Beverages",
+    "Spices & Seasonings", "Grains, Beans & Legumes", "Unknown",
+    "Supplements & Health", "Personal Care", "Meat & Seafood",
+    "Fruits & Vegetables", "Baby & Kids", "Pet Supplies", "Frozen Foods",
+    "Dairy & Eggs", "Bakery & Bread", "Household & Cleaning",
 }
 
+# "keto-friendly" (not "keto"), "vegetarian", "halal", "low-sodium", and
+# "egg-free" are all real, live tag data with real products — none were in
+# any prior version of this list. "paleo", "allergen-free", "cruelty-free"
+# were previously assumed present (they're in extractor.py's SYSTEM_PROMPT)
+# but have zero matching products in the live graph — dropped as dead
+# weight, not because they're wrong values, just because they'd always
+# return 0 results today.
 ALLOWED_TAGS = {
-    "organic", "kosher", "gluten-free", "non-GMO", "vegan", "keto",
-    "paleo", "dairy-free", "sugar-free", "nut-free", "soy-free",
-    "high-protein", "low-calorie", "caffeine-free", "allergen-free",
-    "vegetarian", "halal",
+    "gluten-free", "kosher", "non-GMO", "vegan", "organic", "dairy-free",
+    "sugar-free", "keto-friendly", "high-protein", "caffeine-free",
+    "nut-free", "soy-free", "vegetarian", "halal", "low-sodium",
+    "egg-free", "low-calorie",
 }
 
 
@@ -68,16 +84,15 @@ Intent definitions:
 - "analytics": user wants aggregate info ("which category has most products", "top brands")
 
 Allowed categories (use exact spelling):
-Beverages, Coffee & Tea, Snacks & Candy, Condiments & Sauces,
-Grains Beans & Legumes, Baking & Cooking, Spices & Seasonings,
-Supplements & Health, Nuts & Seeds, Personal Care & Beauty,
-Protein Bars & Snacks, Dairy & Eggs, Frozen Foods, Fruits & Vegetables,
-Meat & Seafood, Baby & Kids, Household & Cleaning, Bakery & Bread, Pet Supplies
+Snacks & Candy, Coffee & Tea, Condiments & Sauces, Beverages,
+Spices & Seasonings, Grains, Beans & Legumes, Supplements & Health,
+Personal Care, Meat & Seafood, Fruits & Vegetables, Baby & Kids,
+Pet Supplies, Frozen Foods, Dairy & Eggs, Bakery & Bread, Household & Cleaning
 
 Allowed dietary_tags (use exact spelling):
-organic, kosher, gluten-free, non-GMO, vegan, keto, paleo, dairy-free,
-sugar-free, nut-free, soy-free, high-protein, low-calorie, caffeine-free,
-allergen-free, vegetarian, halal
+gluten-free, kosher, non-GMO, vegan, organic, dairy-free, sugar-free,
+keto-friendly, high-protein, caffeine-free, nut-free, soy-free,
+vegetarian, halal, low-sodium, egg-free, low-calorie
 
 For semantic_query: extract the core product concept the user is describing."""
 
@@ -432,16 +447,31 @@ def analytics_node(state: AgentState) -> dict:
 # Runs the Cypher query against Neo4j. Only used on the Cypher path.
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Process-wide singleton — mirrors src/graph/hybrid_search.py. Opening a new
+# driver (and its connection pool) on every query was the same per-request
+# reconnect cost that hybrid_search.py was fixed to avoid.
+_DRIVER = None
+
+
+def _get_driver():
+    global _DRIVER
+    if _DRIVER is None:
+        import os
+        from neo4j import GraphDatabase
+        from dotenv import load_dotenv
+        load_dotenv()
+        _DRIVER = GraphDatabase.driver(
+            os.getenv("NEO4J_URI"),
+            auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
+        )
+    return _DRIVER
+
+
 def execute_query(state: AgentState) -> dict:
     """
     Node 4: Execute Cypher against Neo4j and return raw results.
     Handles retry logic — if cypher_valid is False, bumps retry counter.
     """
-    import os
-    from neo4j import GraphDatabase
-    from dotenv import load_dotenv
-    load_dotenv()
-
     cypher  = state.get("cypher_query")
     params  = state.get("cypher_params") or {}
     valid   = state.get("cypher_valid", False)
@@ -460,10 +490,9 @@ def execute_query(state: AgentState) -> dict:
                 "error":        f"Cypher generation failed after {retries} retries: {state.get('cypher_error')}",
             }
 
-    driver = GraphDatabase.driver(
-        os.getenv("NEO4J_URI"),
-        auth=(os.getenv("NEO4J_USERNAME"), os.getenv("NEO4J_PASSWORD")),
-    )
+    import os
+
+    driver = _get_driver()
 
     try:
         with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
@@ -487,8 +516,6 @@ def execute_query(state: AgentState) -> dict:
             "cypher_error": str(e),
             "cypher_retries": retries + 1,
         }
-    finally:
-        driver.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
