@@ -21,8 +21,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from qdrant_client import QdrantClient
-from qdrant_client.models import Filter, FieldCondition, MatchValue, Range
-from sentence_transformers import SentenceTransformer
+from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range
+from fastembed import TextEmbedding
 
 load_dotenv()
 
@@ -53,10 +53,14 @@ _QDRANT = None
 _DRIVER = None
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model() -> TextEmbedding:
     global _MODEL
     if _MODEL is None:
-        _MODEL = SentenceTransformer(EMBEDDING_MODEL)
+        # ONNX Runtime, not torch — ~200MB RSS instead of ~450MB for the
+        # same all-MiniLM-L6-v2 weights (measured), needed to fit Render's
+        # 512MB free-tier RAM cap. Produces identical 384-dim vectors, so
+        # the existing Qdrant collection doesn't need re-embedding.
+        _MODEL = TextEmbedding(model_name=EMBEDDING_MODEL)
     return _MODEL
 
 
@@ -101,17 +105,18 @@ class HybridSearch:
         min_price: float = None,
         dietary_tags: list[str] = None,
         exclude_allergens: list[str] = None,
+        exclude_tags: list[str] = None,
         brand: str = None,
     ) -> list[dict]:
         has_constraints = any([
             category, max_price, min_price,
-            dietary_tags, exclude_allergens, brand
+            dietary_tags, exclude_allergens, exclude_tags, brand
         ])
 
         if has_constraints:
             return self._filter_first(
                 query, top_k, category, max_price, min_price,
-                dietary_tags, exclude_allergens, brand
+                dietary_tags, exclude_allergens, exclude_tags, brand
             )
         else:
             return self._semantic_first(query, top_k)
@@ -120,7 +125,7 @@ class HybridSearch:
 
     def _semantic_first(self, query: str, top_k: int) -> list[dict]:
         """Qdrant semantic search → enrich with Neo4j relationship data."""
-        vector = self.model.encode(query).tolist()
+        vector = list(self.model.embed([query]))[0].tolist()
         qdrant_results = self.qdrant.query_points(
             collection_name=COLLECTION_NAME,
             query=vector,
@@ -143,19 +148,19 @@ class HybridSearch:
 
     def _filter_first(
         self, query, top_k, category, max_price, min_price,
-        dietary_tags, exclude_allergens, brand
+        dietary_tags, exclude_allergens, exclude_tags, brand
     ) -> list[dict]:
         """Neo4j exact filtering → Qdrant semantic re-ranking."""
         neo4j_results = self._neo4j_filter(
             category, max_price, min_price,
-            dietary_tags, exclude_allergens, brand,
+            dietary_tags, exclude_allergens, exclude_tags, brand,
             limit=NEO4J_CANDIDATE_POOL
         )
 
         if not neo4j_results:
             return []
 
-        vector        = self.model.encode(query).tolist()
+        vector        = list(self.model.embed([query]))[0].tolist()
         qdrant_scores = self._score_by_vector(vector, neo4j_results)
 
         for r in neo4j_results:
@@ -173,7 +178,7 @@ class HybridSearch:
 
     def _neo4j_filter(
         self, category, max_price, min_price,
-        dietary_tags, exclude_allergens, brand, limit
+        dietary_tags, exclude_allergens, exclude_tags, brand, limit
     ) -> list[dict]:
         """Build and run a dynamic Cypher filter query."""
 
@@ -200,6 +205,13 @@ class HybridSearch:
                     f"NOT EXISTS {{ MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {{name: $excl_{i}}}) }}"
                 )
                 params[f"excl_{i}"] = allergen
+
+        if exclude_tags:
+            for i, tag in enumerate(exclude_tags):
+                where_clauses.append(
+                    f"NOT EXISTS {{ MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: $excl_tag_{i}}}) }}"
+                )
+                params[f"excl_tag_{i}"] = tag
 
         if max_price is not None:
             where_clauses.append("p.price <= $max_price")
@@ -234,25 +246,34 @@ LIMIT $limit
     # ── Qdrant Re-ranking ─────────────────────────────────────────────────────
 
     def _score_by_vector(self, vector: list[float], products: list[dict]) -> dict[str, float]:
-        """Score a small set of products by vector similarity."""
-        scores = {}
-        for product in products:
-            pid = product.get("product_id")
-            if not pid:
-                continue
-            try:
-                results = self.qdrant.query_points(
-                    collection_name=COLLECTION_NAME,
-                    query=vector,
-                    query_filter=Filter(must=[
-                        FieldCondition(key="product_id", match=MatchValue(value=pid))
-                    ]),
-                    limit=1,
-                    with_payload=False,
-                ).points
-                scores[pid] = results[0].score if results else 0.5
-            except Exception:
-                scores[pid] = 0.5
+        """
+        Score a set of products by vector similarity in ONE batched Qdrant
+        call. Previously issued one query_points() call per product (up to
+        NEO4J_CANDIDATE_POOL of them) — live-measured at 51-131s for a
+        single query on the filter-first path. A single MatchAny filter
+        scores the whole candidate set in one round trip instead.
+        """
+        pids = [p.get("product_id") for p in products if p.get("product_id")]
+        if not pids:
+            return {}
+
+        scores = {pid: 0.5 for pid in pids}  # fallback for any pid Qdrant doesn't have
+        try:
+            results = self.qdrant.query_points(
+                collection_name=COLLECTION_NAME,
+                query=vector,
+                query_filter=Filter(must=[
+                    FieldCondition(key="product_id", match=MatchAny(any=pids))
+                ]),
+                limit=len(pids),
+                with_payload=["product_id"],
+            ).points
+            for r in results:
+                pid = (r.payload or {}).get("product_id")
+                if pid:
+                    scores[pid] = r.score
+        except Exception:
+            pass  # keep the 0.5 fallback scores already set above
         return scores
 
     # ── Neo4j Enrichment ──────────────────────────────────────────────────────
