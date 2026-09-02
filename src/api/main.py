@@ -16,6 +16,7 @@ Interactive docs:
     http://localhost:8000/docs
 """
 
+import time
 import logging
 from contextlib import asynccontextmanager
 
@@ -39,7 +40,18 @@ log = logging.getLogger("retailgraph.api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("RetailGraph API starting up...")
-    log.info("Neo4j, Qdrant, and Groq connections will be made on first request.")
+    log.info("Warming up HybridSearch (fastembed + Qdrant + Neo4j)...")
+    try:
+        # Live-measured: importing the ONNX embedding model for the first
+        # time takes a few seconds. Without this warm-up, that cost lands
+        # on whichever real user sends the first semantic/GraphRAG query
+        # after a server (re)start, instead of on startup.
+        from src.graph.hybrid_search import HybridSearch
+        t0 = time.perf_counter()
+        HybridSearch()
+        log.info(f"Warm-up complete in {time.perf_counter() - t0:.1f}s.")
+    except Exception as e:
+        log.error(f"Warm-up failed (will retry lazily on first request): {e}")
     yield
     log.info("RetailGraph API shutting down.")
 
@@ -58,10 +70,13 @@ app = FastAPI(
 )
 
 # ── CORS — allow all origins for portfolio/demo ────────────────────────────
+# No cookie/session auth anywhere in this API, so allow_credentials stays
+# False — allow_origins="*" + allow_credentials=True is an invalid
+# combination browsers reject outright.
 app.add_middleware(
     CORSMiddleware,
     allow_origins     = ["*"],
-    allow_credentials = True,
+    allow_credentials = False,
     allow_methods     = ["*"],
     allow_headers     = ["*"],
 )
