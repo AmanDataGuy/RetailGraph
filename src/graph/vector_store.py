@@ -12,6 +12,7 @@ Usage:
 import os
 import sys
 import json
+import hashlib
 import argparse
 from pathlib import Path
 from dotenv import load_dotenv
@@ -22,7 +23,7 @@ from qdrant_client.models import (
     Filter, FieldCondition, MatchValue, Range,
     PayloadSchemaType
 )
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 
 load_dotenv()
 
@@ -85,7 +86,7 @@ def load_products(input_file: str) -> list[dict]:
     return products
 
 
-def build_points(products: list[dict], model: SentenceTransformer) -> list[PointStruct]:
+def build_points(products: list[dict], model: TextEmbedding) -> list[PointStruct]:
     """Embed catalog_content and build Qdrant points."""
     texts = []
     for p in products:
@@ -97,7 +98,7 @@ def build_points(products: list[dict], model: SentenceTransformer) -> list[Point
         texts.append(text[:512])  # truncate to avoid token limits
 
     print(f"  Embedding {len(texts)} products...")
-    vectors = model.encode(texts, batch_size=32, show_progress_bar=True)
+    vectors = list(model.embed(texts, batch_size=32))
 
     points = []
     for i, (product, vector) in enumerate(zip(products, vectors)):
@@ -105,7 +106,10 @@ def build_points(products: list[dict], model: SentenceTransformer) -> list[Point
         sid  = product.get("sample_id", str(i))
 
         points.append(PointStruct(
-            id=abs(hash(sid)) % (2**53),  # Qdrant needs integer or UUID
+            # Stable across process runs — Python's hash() is randomized per
+            # process by default, which reassigned every product a new point
+            # ID on each re-run and left old vectors orphaned in Qdrant.
+            id=int(hashlib.sha256(sid.encode()).hexdigest()[:15], 16),
             vector=vector.tolist(),
             payload={
                 "product_id":    pred.get("product_id") or sid,
@@ -150,11 +154,13 @@ def upsert_all(client: QdrantClient, points: list[PointStruct]) -> None:
 def search(
     query: str,
     client: QdrantClient,
-    model: SentenceTransformer,
+    model: TextEmbedding,
     top_k: int = 5,
     category: str = None,
     max_price: float = None,
+    min_price: float = None,
     dietary_tags: list[str] = None,
+    exclude_tags: list[str] = None,
 ) -> list[dict]:
     """
     Semantic search with optional filters.
@@ -164,21 +170,24 @@ def search(
         top_k:        Number of results
         category:     Filter by category (exact match)
         max_price:    Filter by max price
+        min_price:    Filter by min price
         dietary_tags: Filter — product must have ALL these tags
+        exclude_tags: Filter — product must have NONE of these tags
     """
-    vector = model.encode(query).tolist()
+    vector = list(model.embed([query]))[0].tolist()
 
     # Build filters
     must_conditions = []
+    must_not_conditions = []
 
     if category:
         must_conditions.append(
             FieldCondition(key="category", match=MatchValue(value=category))
         )
 
-    if max_price is not None:
+    if max_price is not None or min_price is not None:
         must_conditions.append(
-            FieldCondition(key="price", range=Range(lte=max_price))
+            FieldCondition(key="price", range=Range(lte=max_price, gte=min_price))
         )
 
     if dietary_tags:
@@ -187,7 +196,16 @@ def search(
                 FieldCondition(key="dietary_tags", match=MatchValue(value=tag))
             )
 
-    query_filter = Filter(must=must_conditions) if must_conditions else None
+    if exclude_tags:
+        for tag in exclude_tags:
+            must_not_conditions.append(
+                FieldCondition(key="dietary_tags", match=MatchValue(value=tag))
+            )
+
+    query_filter = (
+        Filter(must=must_conditions or None, must_not=must_not_conditions or None)
+        if (must_conditions or must_not_conditions) else None
+    )
 
     results = client.query_points(
         collection_name=COLLECTION_NAME,
@@ -212,7 +230,7 @@ def search(
 
 # ── Test ──────────────────────────────────────────────────────────────────────
 
-def run_test(client: QdrantClient, model: SentenceTransformer) -> None:
+def run_test(client: QdrantClient, model: TextEmbedding) -> None:
     """Run 3 test searches to verify everything works."""
     tests = [
         {
@@ -248,7 +266,7 @@ def main():
     args = parser.parse_args()
 
     print("Loading embedding model...")
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    model = TextEmbedding(model_name=EMBEDDING_MODEL)
     print(f"  ✅ Model loaded: {EMBEDDING_MODEL}")
 
     client = get_client()
