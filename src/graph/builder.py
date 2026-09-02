@@ -33,10 +33,29 @@ BATCH_SIZE = 500
 
 
 # ── Quality Score ─────────────────────────────────────────────────────────────
+# There are three quality/confidence scorers in this codebase, at three
+# different pipeline stages, deliberately NOT merged into one:
+#   1. src/extraction/extractor.py:score_extraction() — runs at extraction
+#      time on the Modal GPU worker, which can't import from src/ (not
+#      mounted in the container), so it's necessarily self-contained.
+#   2. src/extraction/schemas.py:ProductEntity.compute_quality_score() —
+#      runs AFTER full Pydantic validation, on the seed-training-set path,
+#      and can score richer fields (bullet_points, description, visual)
+#      that aren't available here.
+#   3. This function — a lightweight heuristic on the raw, unvalidated
+#      dict read from verified_extractions.jsonl, used only to populate
+#      Neo4j's p.quality_score for ORDER BY ranking in queries.py.
+# Unifying 1 and 3 would need packaging shared code into the Modal image;
+# unifying 2 and 3 would mean running full Pydantic validation at ingestion
+# time, which is a larger behavioral change than this fix — see
+# RUTHLESS_AUDIT.md's confidence-gate fix (_is_high_confidence above) for
+# the part of that gap that actually mattered (whether a record reaches
+# Neo4j at all, not exactly how its ranking score is computed).
 
 def compute_quality_score(pred: dict) -> int:
     """
-    0-100 quality score per product.
+    0-100 quality score per product, computed on the raw prediction dict
+    (pre-validation) — used only as a Neo4j ranking signal, not a gate.
       40 pts — field completeness
       40 pts — extraction confidence
       20 pts — key fields present (item_name, price, category)
@@ -185,16 +204,35 @@ def ingest_batch(session, batch: list[dict]) -> dict:
     return counts
 
 
+def _is_high_confidence(product: dict) -> bool:
+    """
+    Same gate src/graph/vector_store.py already applies before embedding into
+    Qdrant — mirrored here so Neo4j and Qdrant never disagree on which
+    products are trusted. If "bucket" is missing (older export format),
+    fall back to extractor.py's own HIGH_CONF_THRESHOLD (0.85).
+    """
+    bucket = product.get("bucket")
+    if bucket is not None:
+        return bucket == "high_conf"
+    confidence = (product.get("prediction") or {}).get("extraction_confidence") or 0.0
+    return confidence >= 0.85
+
+
 def ingest(products: list[dict], driver) -> None:
-    """Ingest all products in batches of BATCH_SIZE."""
-    total = len(products)
+    """Ingest all products in batches of BATCH_SIZE. Skips non-high-confidence records."""
+    gated  = [p for p in products if _is_high_confidence(p)]
+    total  = len(gated)
     totals = {"products": 0, "brands": 0, "tags": 0, "allergens": 0, "categories": 0}
+
+    skipped = len(products) - total
+    if skipped:
+        print(f"  Skipping {skipped} non-high-confidence record(s) — not written to Neo4j.")
 
     print(f"\nIngesting {total} products into Neo4j (batch size={BATCH_SIZE})...")
 
     with driver.session(database=DATABASE) as session:
         for i in range(0, total, BATCH_SIZE):
-            batch = products[i:i + BATCH_SIZE]
+            batch = gated[i:i + BATCH_SIZE]
             counts = ingest_batch(session, batch)
             for k in totals:
                 totals[k] += counts[k]
