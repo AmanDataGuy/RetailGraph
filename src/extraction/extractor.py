@@ -284,6 +284,18 @@ def run_batch(
     """
     Runs one transformers generation pass over a batch of products.
 
+    TEXT-ONLY, despite Qwen2-VL being a vision-language model: build_prompt()
+    below only ever sends catalog_content text, never an image. The visual
+    fields on ProductEntity (packaging_type, packaging_color, has_brand_logo)
+    are trained on in training/generate_visual_pairs.py's 500 visual pairs,
+    but this script — the one that actually ran extraction on the live
+    catalog — never exercises that capability. See RUTHLESS_AUDIT.md §3.2.
+    Wiring in real image input (loading each product's image and passing it
+    through the chat template alongside catalog_content) would need testing
+    against the real Modal GPU + model weights this environment doesn't have
+    access to, so it isn't done here — flagging the gap rather than shipping
+    an unverified change to a production GPU pipeline.
+
     Args:
         model:     Qwen2VLForConditionalGeneration on CUDA
         processor: Qwen2VLProcessor with padding_side='left'
