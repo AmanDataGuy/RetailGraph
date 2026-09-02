@@ -154,7 +154,10 @@ st.markdown("""
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=60)
 def check_health() -> dict:
+    # /v1/health makes a real Groq API call to verify connectivity — without
+    # caching, every Streamlit rerun (every widget interaction) re-fired it.
     try:
         r = requests.get(f"{API_URL}/v1/health", timeout=10)
         return r.json()
