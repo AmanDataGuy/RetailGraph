@@ -8,7 +8,7 @@ Fine-tuned Qwen2-VL 7B extracts structured entities from product listings → lo
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Model](https://img.shields.io/badge/Qwen2--VL_7B-QLoRA-blueviolet?style=flat-square)](https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct)
-[![Accuracy](https://img.shields.io/badge/Extraction_Accuracy-94.2%25-brightgreen?style=flat-square)](#results)
+[![Accuracy](https://img.shields.io/badge/Extraction_Accuracy-92.0%25-brightgreen?style=flat-square)](#results)
 [![Neo4j](https://img.shields.io/badge/Neo4j-AuraDB-008CC1?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com)
 [![Qdrant](https://img.shields.io/badge/Qdrant-Vector_Store-dc244c?style=flat-square)](https://qdrant.tech)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C?style=flat-square)](https://langchain-ai.github.io/langgraph/)
@@ -31,20 +31,26 @@ Raw grocery listings (text + images) go in → a fine-tuned vision-language mode
 
 | Extraction Accuracy | Knowledge Graph | Vector Store |
 |:---:|:---:|:---:|
-| **94.2%** across 11 fields | **2,160** products · **6,248** relationships | **2,161** vectors · 384-dim |
-| 678 val examples · 0 parse errors | 1,041 brands · 17 categories · 47 allergens | all-MiniLM-L6-v2 |
+| **92.0%** across 8 tested fields | **2,160** products · **6,248** relationships | **2,161** vectors · 384-dim |
+| 678 val examples · 0 parse errors | 1,041 brands · 17 categories · 10 canonical allergens | all-MiniLM-L6-v2 |
 
 ### Field accuracy — 678 held-out examples
 
 | Field | Exact Match | LLM Judge |
 |---|---|---|
-| Brand · Price · Pack Size · Packaging (visual) | 100% | — |
+| Brand · Price · Pack Size | 100% | — |
 | Quantity Unit | 92.6% | — |
 | Allergen List | 91.5% | 4.68 / 5 |
 | Quantity Value | 88.2% | — |
 | Dietary Tags | 85.7% | 4.47 / 5 |
 | Category | 78.3% | 4.22 / 5 |
-| **Overall (mean of 11 fields)** | **94.2%** | 0 parse errors · 8.7s/product |
+| Packaging Type · Color · Brand Logo (visual) | not yet measured — no labeled visual test set | — |
+| **Overall (mean of 8 tested fields)** | **92.0%** | 0 parse errors · 8.7s/product |
+
+Visual fields (packaging type/color, brand-logo presence) are extracted by the
+model but not yet scored against ground truth — a labeled visual validation
+set doesn't exist yet, so they're reported separately rather than folded into
+the headline number.
 
 LLM-as-Judge (GPT-4o-mini) scores semantic correctness independently of exact string match — it surfaced **38 dietary-tag predictions that were correct but failed string equality**.
 
