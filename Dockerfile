@@ -21,7 +21,7 @@ COPY --chown=user requirements-docker.txt .
 RUN pip install --no-cache-dir --user -r requirements-docker.txt
 
 # Bake the embedding model into the image so the first query isn't a cold download.
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')"
 
 COPY --chown=user . .
 RUN chmod +x start.sh
