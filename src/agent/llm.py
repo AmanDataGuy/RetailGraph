@@ -18,7 +18,12 @@ log = logging.getLogger("retailgraph.llm")
 # ── Client ─────────────────────────────────────────────────────────────────
 _client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-MODEL    = "llama-3.3-70b-versatile"
+# llama-3.3-70b-versatile was deprecated by Groq on 2026-08-16 (returns 404
+# model_not_found as of this fix). Groq's own docs recommend gpt-oss-120b or
+# qwen3.6-27b as replacements; gpt-oss-120b confirmed compatible with the
+# json_object response_format mode used in generate_json() below.
+# https://console.groq.com/docs/deprecations
+MODEL    = "openai/gpt-oss-120b"
 MAX_TOKENS = 512
 TEMPERATURE = 0.1   # near-deterministic for structured outputs
 
