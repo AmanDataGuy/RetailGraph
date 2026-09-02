@@ -40,7 +40,7 @@ async def query_agent(request: QueryRequest):
         state = run_query(request.query)
     except Exception as e:
         log.error(f"Agent error: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Agent error — please try again.")
 
     latency_ms = round((time.perf_counter() - start) * 1000, 1)
 
