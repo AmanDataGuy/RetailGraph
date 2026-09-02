@@ -103,6 +103,11 @@ def build_graph() -> StateGraph:
 
 # ── Public interface ───────────────────────────────────────────────────────
 
+# Compiled once at import time — build_graph() only wires up node/edge
+# definitions, so recompiling it per request just re-did the same work.
+_COMPILED_GRAPH = build_graph()
+
+
 def run_query(query: str) -> AgentState:
     """
     Run a single natural language query through the agent.
@@ -113,10 +118,9 @@ def run_query(query: str) -> AgentState:
     Returns:
         Final AgentState with answer, cypher_used, raw_results, etc.
     """
-    agent = build_graph()
     initial = make_initial_state(query)
     log.info(f"Running query: '{query}'")
-    result = agent.invoke(initial)
+    result = _COMPILED_GRAPH.invoke(initial)
     return result
 
 
