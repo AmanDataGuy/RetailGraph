@@ -11,7 +11,7 @@ accelerate==0.30.0
 bitsandbytes==0.43.1
 peft==0.11.1
 trl==0.8.6
-snorkel==0.9.9
+snorkel==0.10.0
 rapidfuzz==3.9.1
 langgraph==0.1.6
 openai==1.30.2
