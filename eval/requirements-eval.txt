@@ -21,7 +21,7 @@
 #   venv/Scripts/python      eval/collect_results.py   # main venv — drives the real agent
 #   venv-eval/Scripts/python eval/score_ragas.py        # eval venv — scores with RAGAS
 # or just: python eval/run_eval.py   (orchestrates both, see that file)
-ragas==0.1.21
+ragas==0.4.3
 langchain==0.2.3
 langchain-groq==0.1.9
 langchain-community==0.2.4
