@@ -1,0 +1,54 @@
+# Runs every 30 minutes. Its main job isn't "alert when something breaks" —
+# it's PREVENTION: Neo4j AuraDB Free auto-pauses after 72h (3 days) of
+# inactivity (confirmed via Neo4j's own docs, 2026). A real query every
+# 30 minutes never lets it go idle long enough to pause, so this keeps the
+# instance alive automatically — no manual resume needed as long as this
+# keeps running. The email step only fires if something is ACTUALLY down
+# despite that (Groq/Qdrant outage, credentials rotated, a genuine Aura
+# incident) — a rare last-resort signal, not a routine chore.
+name: Keep-alive & health check
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # well under Aura Free's 72h auto-pause window
+  workflow_dispatch: {}       # allows a manual "Run workflow" click too
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: pip install neo4j qdrant-client groq python-dotenv
+
+      - name: Check Neo4j, Qdrant, Groq connectivity
+        id: healthcheck
+        env:
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME: ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python scripts/health_check.py
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "RetailGraph health check FAILED"
+          to: ${{ secrets.MAIL_TO }}
+          from: RetailGraph Health Check
+          body: |
+            The scheduled health check for RetailGraph failed.
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

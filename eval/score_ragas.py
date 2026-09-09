@@ -14,8 +14,9 @@ which drives the real agent) and scores it with RAGAS:
                           find what it should have?
 
 No OpenAI key needed: the judge LLM is Groq (langchain-groq -> ChatGroq,
-the same llama-3.3-70b-versatile the agent itself uses), and embeddings are
-the same local all-MiniLM-L6-v2 model src/graph/hybrid_search.py already
+the same openai/gpt-oss-120b the agent itself uses — llama-3.3-70b-versatile
+was deprecated by Groq on 2026-08-16, see src/agent/llm.py), and embeddings
+are the same local all-MiniLM-L6-v2 model src/graph/hybrid_search.py already
 loads — via langchain_community's HuggingFaceEmbeddings wrapper.
 
 Usage:
@@ -52,6 +53,48 @@ OUTPUT_FILE = ROOT / "evaluation" / "ragas_results.json"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
+def _pick_working_key() -> str:
+    """
+    RAGAS's internal batching (ragas.evaluate) catches per-job errors
+    (RateLimitError included) and marks them failed rather than surfacing
+    them here, so mid-run key rotation like src/agent/llm.py's isn't
+    possible through this interface. Instead: try each configured
+    GROQ_API_KEY* env var with a 1-token ping before starting the real
+    run, and use the first one that isn't already rate-limited. This
+    directly fixes the recurring failure mode where key #1 is already
+    exhausted from earlier testing the same day.
+    """
+    from groq import Groq, RateLimitError
+
+    keys = [
+        k for k in [
+            os.getenv("GROQ_API_KEY"),
+            os.getenv("GROQ_API_KEY_1"),
+            os.getenv("GROQ_API_KEY_2"),
+            os.getenv("GROQ_API_KEY_3"),
+            os.getenv("GROQ_API_KEY_4"),
+            os.getenv("GROQ_API_KEY_5"),
+        ] if k
+    ]
+    if not keys:
+        raise SystemExit("No GROQ_API_KEY configured — check your .env")
+
+    for i, key in enumerate(keys):
+        try:
+            Groq(api_key=key).chat.completions.create(
+                model="openai/gpt-oss-120b",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            )
+            print(f"Using Groq key #{i + 1}/{len(keys)} for RAGAS judge calls.")
+            return key
+        except RateLimitError:
+            print(f"Groq key #{i + 1}/{len(keys)} already rate-limited, trying next...")
+            continue
+
+    raise SystemExit(f"All {len(keys)} configured Groq key(s) are currently rate-limited.")
+
+
 def build_dataset(records: list[dict]) -> Dataset:
     return Dataset.from_dict({
         "question": [r["query"] for r in records],
@@ -72,11 +115,9 @@ def main():
     records = raw["records"]
     print(f"Loaded {len(records)} agent runs from {INPUT_FILE.name}")
 
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key:
-        raise SystemExit("GROQ_API_KEY not set — check your .env")
+    groq_key = _pick_working_key()
 
-    llm = LangchainLLMWrapper(ChatGroq(model="llama-3.3-70b-versatile", temperature=0, api_key=groq_key))
+    llm = LangchainLLMWrapper(ChatGroq(model="openai/gpt-oss-120b", temperature=0, api_key=groq_key))
     embeddings = LangchainEmbeddingsWrapper(HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL))
 
     # context_recall requires a non-empty ground_truth; only score it where we

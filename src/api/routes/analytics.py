@@ -4,6 +4,7 @@ GET /health    — connection status for all services
 """
 
 import os
+import time
 import logging
 from fastapi import APIRouter, HTTPException
 
@@ -11,6 +12,7 @@ from src.api.models import (
     AnalyticsResponse, CategoryStat, BrandStat, TagStat,
     HealthResponse,
 )
+from src.api.request_log import log_request
 
 router = APIRouter()
 log    = logging.getLogger("retailgraph.api.analytics")
@@ -32,6 +34,7 @@ async def get_analytics():
     from src.graph.queries import GraphQueries
 
     log.info("GET /analytics")
+    start = time.perf_counter()
 
     try:
         gq = GraphQueries()
@@ -49,6 +52,10 @@ async def get_analytics():
 
     except Exception as e:
         log.error(f"Analytics error: {e}")
+        log_request(
+            endpoint="/analytics", success=False, error=str(e),
+            latency_ms=round((time.perf_counter() - start) * 1000, 1),
+        )
         raise HTTPException(status_code=500, detail="Analytics error — please try again.")
 
     categories = [
@@ -75,6 +82,11 @@ async def get_analytics():
         )
         for r in tags_raw
     ]
+
+    log_request(
+        endpoint="/analytics", total_products=total_products,
+        latency_ms=round((time.perf_counter() - start) * 1000, 1), success=True,
+    )
 
     return AnalyticsResponse(
         total_products   = total_products,

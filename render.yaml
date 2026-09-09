@@ -1,0 +1,49 @@
+# RetailGraph — Render Blueprint
+#
+# Deploys the single container (FastAPI + Streamlit, see start.sh) built from
+# the repo's Dockerfile. Neo4j (AuraDB) and Qdrant (Cloud) are external
+# managed services, not deployed here — only their URLs/keys are wired in as
+# env vars.
+#
+# Setup: Render dashboard -> New -> Blueprint -> connect this repo -> Render
+# reads this file automatically. After the first deploy, fill in every env
+# var marked `sync: false` under the service's Environment tab (Render
+# refuses to store real secrets in a file that's committed to git, so those
+# have to be entered once by hand).
+services:
+  - type: web
+    name: retailgraph
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    # start.sh runs FastAPI on 127.0.0.1:8000 (internal only) and Streamlit
+    # on the public $PORT — so the externally-reachable health path is
+    # Streamlit's own built-in one, not FastAPI's /v1/health.
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: NEO4J_DATABASE
+        value: neo4j
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEY_1
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: GROQ_API_KEY_3
+        sync: false
+      - key: LANGCHAIN_TRACING_V2
+        value: "false"
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_PROJECT
+        value: retailgraph
