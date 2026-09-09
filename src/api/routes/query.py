@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException
 
 from src.api.models import QueryRequest, QueryResponse, ProductResult
 from src.agent.graph import run_query
-from src.api.request_log import log_request
 
 router = APIRouter()
 log    = logging.getLogger("retailgraph.api.query")
@@ -41,10 +40,6 @@ async def query_agent(request: QueryRequest):
         state = run_query(request.query)
     except Exception as e:
         log.error(f"Agent error: {e}")
-        log_request(
-            endpoint="/query", query=request.query, success=False, error=str(e),
-            latency_ms=round((time.perf_counter() - start) * 1000, 1),
-        )
         raise HTTPException(status_code=500, detail="Agent error — please try again.")
 
     latency_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -68,12 +63,6 @@ async def query_agent(request: QueryRequest):
             ))
         except Exception:
             continue
-
-    log_request(
-        endpoint="/query", query=request.query, intent=state.get("intent"),
-        route=state.get("route"), result_count=state.get("result_count", len(results)),
-        latency_ms=latency_ms, success=True,
-    )
 
     return QueryResponse(
         query        = request.query,

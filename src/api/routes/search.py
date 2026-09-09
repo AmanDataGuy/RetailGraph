@@ -3,7 +3,6 @@ POST /search  — direct filtered search, bypasses agent
 GET  /products/{product_id} — single product with graph context
 """
 
-import time
 import logging
 from fastapi import APIRouter, HTTPException
 
@@ -11,7 +10,6 @@ from src.api.models import (
     SearchRequest, SearchResponse, ProductResult,
     ProductDetail,
 )
-from src.api.request_log import log_request
 
 router = APIRouter()
 log    = logging.getLogger("retailgraph.api.search")
@@ -36,7 +34,6 @@ async def search_products(request: SearchRequest):
     from src.graph.queries import GraphQueries
 
     log.info(f"POST /search | query='{request.query}' filters={request.dietary_tags}")
-    start = time.perf_counter()
 
     # Build filter kwargs
     kwargs = {}
@@ -70,10 +67,6 @@ async def search_products(request: SearchRequest):
 
     except Exception as e:
         log.error(f"Search error: {e}")
-        log_request(
-            endpoint="/search", query=request.query, success=False, error=str(e),
-            latency_ms=round((time.perf_counter() - start) * 1000, 1),
-        )
         raise HTTPException(status_code=500, detail="Search error — please try again.")
 
     results = []
@@ -92,12 +85,6 @@ async def search_products(request: SearchRequest):
             ))
         except Exception:
             continue
-
-    log_request(
-        endpoint="/search", query=request.query, search_type=search_type,
-        result_count=len(results),
-        latency_ms=round((time.perf_counter() - start) * 1000, 1), success=True,
-    )
 
     return SearchResponse(
         result_count = len(results),
