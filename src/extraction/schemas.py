@@ -9,14 +9,14 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-# ── Load domain adapter once at module level ─────────────────────────────────
-def _load_adapter(domain: str = "retail") -> dict:
-    path = Path(__file__).parent.parent / "domain_adapter" / f"{domain}.yaml"
+# ── Load the retail domain adapter once at module level ──────────────────────
+def _load_adapter() -> dict:
+    path = Path(__file__).parent.parent / "domain_adapter" / "retail.yaml"
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
-_ADAPTER = _load_adapter("retail")
+_ADAPTER = _load_adapter()
 
 VALID_CATEGORIES: list[str] = [
     "Coffee & Tea", "Breakfast & Cereal", "Meat & Seafood",
