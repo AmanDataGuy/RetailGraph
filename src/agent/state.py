@@ -46,6 +46,10 @@ class AgentState(TypedDict):
     # ── Error handling ────────────────────────────────────────────────────
     error: Optional[str]                # set if something went wrong
 
+    # ── Guardrails ─────────────────────────────────────────────────────────
+    blocked:  bool                      # True if check_input() rejected the query
+    grounded: Optional[bool]            # advisory output check — see src/agent/guardrails.py
+
 
 def make_initial_state(query: str) -> AgentState:
     """
@@ -67,4 +71,6 @@ def make_initial_state(query: str) -> AgentState:
         answer=None,
         cypher_used=None,
         error=None,
+        blocked=False,
+        grounded=None,
     )
