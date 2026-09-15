@@ -8,15 +8,52 @@ import os
 import json
 import logging
 from typing import Optional
-from groq import Groq
+from groq import Groq, RateLimitError
 from dotenv import load_dotenv
 
 load_dotenv()
 
 log = logging.getLogger("retailgraph.llm")
 
-# ── Client ─────────────────────────────────────────────────────────────────
-_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# ── Client pool — rotates across multiple Groq API keys ─────────────────────
+# A concurrency stress test (16 parallel requests) hit Groq's per-minute
+# token limit (TPM: 8000 on a single free-tier key) and failed 2/16 requests
+# outright. GROQ_API_KEY is required; GROQ_API_KEY_1..GROQ_API_KEY_3 are
+# optional extra keys, tried in order once the current one 429s. The index
+# persists across calls so an exhausted key isn't retried on every request.
+_API_KEYS = [
+    k for k in [
+        os.getenv("GROQ_API_KEY"),
+        os.getenv("GROQ_API_KEY_1"),
+        os.getenv("GROQ_API_KEY_2"),
+        os.getenv("GROQ_API_KEY_3"),
+    ] if k
+]
+if not _API_KEYS:
+    raise RuntimeError("No GROQ_API_KEY configured — set at least GROQ_API_KEY in .env")
+
+_clients = [Groq(api_key=k) for k in _API_KEYS]
+_current_key_index = 0
+
+log.info(f"Groq key pool: {len(_clients)} key(s) configured")
+
+
+def _call_with_rotation(make_request):
+    """Try the current key; on RateLimitError, advance to the next key and
+    retry, up to one full pass over all configured keys."""
+    global _current_key_index
+    last_error = None
+    for _ in range(len(_clients)):
+        client = _clients[_current_key_index]
+        try:
+            return make_request(client)
+        except RateLimitError as e:
+            last_error = e
+            log.warning(
+                f"Groq key #{_current_key_index + 1}/{len(_clients)} rate-limited; rotating."
+            )
+            _current_key_index = (_current_key_index + 1) % len(_clients)
+    raise last_error
 
 # llama-3.3-70b-versatile was deprecated by Groq on 2026-08-16 (returns 404
 # model_not_found as of this fix). Groq's own docs recommend gpt-oss-120b or
@@ -40,7 +77,7 @@ def generate(system: str, prompt: str, temperature: float = TEMPERATURE) -> str:
     Returns:
         Model response as stripped string
     """
-    response = _client.chat.completions.create(
+    response = _call_with_rotation(lambda client: client.chat.completions.create(
         model=MODEL,
         messages=[
             {"role": "system", "content": system},
@@ -48,7 +85,7 @@ def generate(system: str, prompt: str, temperature: float = TEMPERATURE) -> str:
         ],
         max_tokens=MAX_TOKENS,
         temperature=temperature,
-    )
+    ))
     return response.choices[0].message.content.strip()
 
 
@@ -65,7 +102,7 @@ def generate_json(system: str, prompt: str) -> dict:
         Parsed dict. Returns {} on any failure.
     """
     try:
-        response = _client.chat.completions.create(
+        response = _call_with_rotation(lambda client: client.chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": system},
@@ -74,7 +111,7 @@ def generate_json(system: str, prompt: str) -> dict:
             max_tokens=MAX_TOKENS,
             temperature=0.0,   # fully deterministic for JSON
             response_format={"type": "json_object"},
-        )
+        ))
         raw = response.choices[0].message.content.strip()
         return json.loads(raw)
 
