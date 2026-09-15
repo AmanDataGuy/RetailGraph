@@ -14,6 +14,7 @@ import logging
 from langgraph.graph import StateGraph, START, END
 
 from src.agent.state import AgentState, make_initial_state
+from src.agent.guardrails import check_input, check_output
 from src.agent.nodes import (
     extract_intent,
     route_query,
@@ -118,9 +119,22 @@ def run_query(query: str) -> AgentState:
     Returns:
         Final AgentState with answer, cypher_used, raw_results, etc.
     """
+    guard = check_input(query)
+    if guard["blocked"]:
+        log.warning(f"Blocked query ({','.join(guard['categories'])}): '{query}'")
+        state = make_initial_state(query)
+        state["blocked"] = True
+        state["answer"]  = guard["reason"]
+        return state
+
     initial = make_initial_state(query)
     log.info(f"Running query: '{query}'")
     result = _COMPILED_GRAPH.invoke(initial)
+
+    result["grounded"] = check_output(result.get("answer") or "", result.get("raw_results") or [])
+    if not result["grounded"]:
+        log.warning(f"Ungrounded answer for query: '{query}'")
+
     return result
 
 
