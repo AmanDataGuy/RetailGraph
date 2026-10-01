@@ -43,6 +43,7 @@ class QueryResponse(BaseModel):
     intent:       Optional[str]       = None
     route:        Optional[str]       = None
     result_count: int                 = 0
+    total_matches: Optional[int]      = None
     results:      list[ProductResult] = []
     cypher_used:  Optional[str]       = None
     latency_ms:   Optional[float]     = None

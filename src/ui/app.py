@@ -238,7 +238,9 @@ def render_sidebar(response: dict):
         intent = response.get("intent", "—")
         route  = response.get("route", "—")
         count  = response.get("result_count", 0)
+        total  = response.get("total_matches")
         lat    = response.get("latency_ms", 0)
+        results_label = f"{count} of {total} shown" if total and total > count else f"{count} products"
 
         route_icon = {
             "cypher":    "🗄️ Cypher",
@@ -265,7 +267,7 @@ def render_sidebar(response: dict):
         </div>
         <div class='stat-box'>
             <div class='stat-label'>Results</div>
-            <div>{count} products</div>
+            <div>{results_label}</div>
         </div>
         <div class='stat-box'>
             <div class='stat-label'>Latency</div>

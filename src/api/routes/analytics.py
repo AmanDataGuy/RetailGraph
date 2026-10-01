@@ -1,6 +1,12 @@
 """
 GET /analytics — category, brand, dietary tag statistics
 GET /health    — connection status for all services
+
+Both routes are plain `def`, not `async def` — GraphQueries/neo4j/qdrant/groq
+calls here are fully synchronous with no `await`s. An `async def` handler
+with no awaits blocks the single event-loop thread for the whole request;
+under concurrent load that serializes every request instead of running them
+in parallel. Plain `def` lets Starlette dispatch to its thread pool instead.
 """
 
 import os
@@ -19,7 +25,7 @@ log    = logging.getLogger("retailgraph.api.analytics")
 # ── GET /analytics ─────────────────────────────────────────────────────────
 
 @router.get("/analytics", response_model=AnalyticsResponse, tags=["Analytics"])
-async def get_analytics():
+def get_analytics():
     """
     Aggregate statistics across the full knowledge graph.
 
@@ -42,7 +48,10 @@ async def get_analytics():
 
         # Totals
         total_products   = sum(r.get("product_count", 0) for r in categories_raw)
-        total_brands     = len(brands_raw)
+        # Not len(brands_raw) — that list is capped by get_top_brands's LIMIT
+        # 20, so it previously reported the page size as if it were the true
+        # brand count (always exactly 20, never more).
+        total_brands     = gq.count_brands()
         total_categories = len(categories_raw)
 
         gq.close()
@@ -89,7 +98,7 @@ async def get_analytics():
 # ── GET /health ────────────────────────────────────────────────────────────
 
 @router.get("/health", response_model=HealthResponse, tags=["System"])
-async def health_check():
+def health_check():
     """
     Check connectivity to all backend services.
     Returns status for Neo4j, Qdrant, and Groq.

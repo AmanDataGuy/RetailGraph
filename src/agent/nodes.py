@@ -192,16 +192,27 @@ Rules:
 - Use WHERE NOT EXISTS for allergen exclusions
 - Add LIMIT 10 unless the query is for analytics
 - Use case-insensitive string matching where possible: toLower()
-- Never use APOC procedures"""
+- Never use APOC procedures
+- CRITICAL: put any WHERE clause immediately after the first (non-optional)
+  MATCH, BEFORE any OPTIONAL MATCH clauses. A WHERE placed after an OPTIONAL
+  MATCH only filters that optional pattern — it will NOT exclude non-matching
+  rows, since OPTIONAL MATCH never fails a row. Correct order:
+    MATCH (p:Product)
+    WHERE toLower(p.item_name) CONTAINS toLower('...')
+    OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)
+    OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)
+    RETURN ..."""
 
 
 def build_cypher(state: AgentState) -> dict:
     """
     Node 3a: Build Cypher query from intent + entities.
-    Uses pre-built templates first; falls back to LLM generation.
+    Uses pre-built templates first; falls back to LLM generation for "lookup"
+    queries only (see the no-entities branch below for why).
     """
     entities = state.get("entities", {}) or {}
     query    = state["query"]
+    intent   = state.get("intent")
 
     log.info(f"[Node 3a] build_cypher | entities={entities}")
 
@@ -209,16 +220,38 @@ def build_cypher(state: AgentState) -> dict:
     template = _try_template(entities)
 
     if template:
-        cypher, params = template
+        cypher, params, count_cypher = template
         log.info("[Node 3a] Using pre-built template")
         return {
             "cypher_query": cypher,
             "cypher_params": params,
+            "cypher_count_query": count_cypher,
             "cypher_valid": True,
             "route": "cypher",
         }
 
-    # ── Fall back to LLM-generated Cypher ─────────────────────────────────
+    # "filter" intent means hard constraints (tags/price/category/brand/
+    # allergens). If none were extracted, there is nothing to filter on —
+    # asking the LLM to invent a Cypher query here previously fabricated an
+    # arbitrary top-10-by-price result set for queries with no real signal
+    # (e.g. gibberish input), instead of the zero matches those queries
+    # actually have. "lookup" intent (a specific product/brand by name)
+    # still needs the LLM fallback since `entities` has no product-name
+    # field to template against.
+    if intent != "lookup":
+        log.info("[Node 3a] No entities extracted and intent != lookup — no query to run")
+        return {
+            "cypher_query": None,
+            "cypher_params": {},
+            "cypher_count_query": None,
+            "cypher_valid": True,
+            "raw_results": [],
+            "result_count": 0,
+            "total_count": 0,
+            "route": "cypher",
+        }
+
+    # ── Fall back to LLM-generated Cypher (lookup-by-name only) ────────────
     retries = state.get("cypher_retries", 0)
     prev_error = state.get("cypher_error")
 
@@ -242,6 +275,7 @@ def build_cypher(state: AgentState) -> dict:
         return {
             "cypher_query": None,
             "cypher_params": {},
+            "cypher_count_query": None,
             "cypher_valid": False,
             "cypher_error": "LLM returned empty Cypher",
             "route": "cypher",
@@ -254,15 +288,21 @@ def build_cypher(state: AgentState) -> dict:
     return {
         "cypher_query": cypher,
         "cypher_params": {},
+        "cypher_count_query": None,   # LLM-generated Cypher has no matching count query — count-aware phrasing doesn't apply here
         "cypher_valid": valid,
         "cypher_error": error if not valid else None,
         "route": "cypher",
     }
 
 
-def _try_template(entities: dict) -> tuple[str, dict] | None:
+def _try_template(entities: dict) -> tuple[str, dict, str] | None:
     """
-    Returns a (cypher, params) pair if entities match a known pattern.
+    Returns a (cypher, params, count_cypher) triple if entities match a known
+    pattern. `count_cypher` mirrors the same MATCH/WHERE clauses but returns
+    the true match count (no LIMIT) — build_cypher/execute_query use it to
+    tell "10 shown" apart from "10 of 29 total", instead of the LIMIT-capped
+    result count being reported to the user as if it were the total.
+
     All user-derived values (brand, category, tags, allergens) are passed as
     bound $params rather than interpolated into the query string — an
     f-string here would let a value like "Reese's" break the query, or let
@@ -276,11 +316,22 @@ def _try_template(entities: dict) -> tuple[str, dict] | None:
     brand     = entities.get("brand")
     allergens = entities.get("exclude_allergens", [])
 
-    # Brand lookup
-    if brand and not tags and not category:
-        cypher = (
+    # Brand lookup — only when brand is the SOLE constraint. This branch
+    # builds a query that filters by brand alone; if price/allergen
+    # constraints are also present (e.g. "products from McCormick under
+    # $10"), taking this shortcut would silently drop them entirely. Any
+    # other combination falls through to the general dynamic builder below,
+    # which handles brand correctly alongside every other filter.
+    if (
+        brand and not tags and not category
+        and max_p is None and min_p is None and not allergens
+    ):
+        match_where = (
             "MATCH (p:Product)-[:MADE_BY]->(b:Brand) "
             "WHERE toLower(b.name) = toLower($brand) "
+        )
+        cypher = (
+            match_where +
             "OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category) "
             "RETURN p.item_name AS item_name, p.price AS price, "
             "p.quantity_value AS quantity_value, p.quantity_unit AS quantity_unit, "
@@ -288,10 +339,26 @@ def _try_template(entities: dict) -> tuple[str, dict] | None:
             "b.name AS brand, c.name AS category "
             "ORDER BY p.price ASC LIMIT 10"
         )
-        return cypher, {"brand": brand}
+        count_cypher = match_where + "RETURN count(DISTINCT p) AS total"
+        return cypher, {"brand": brand}, count_cypher
 
-    # Build dynamic MATCH + WHERE
-    match_clauses = ["MATCH (p:Product)"]
+    # Build dynamic MATCH + WHERE.
+    #
+    # CRITICAL ordering constraint, confirmed live against real Neo4j: a
+    # WHERE clause binds to whichever read clause (MATCH/OPTIONAL MATCH)
+    # immediately precedes it — regardless of which variables it actually
+    # references. If that clause is an OPTIONAL MATCH, the WHERE becomes
+    # part of that optional pattern (a failed condition just nulls the
+    # optional binding) instead of a row-level filter, so it silently stops
+    # excluding non-matching rows. This affected even `p.price <= $max_price`
+    # (a condition that only touches the mandatorily-matched `p`) whenever it
+    # was placed after an OPTIONAL MATCH for category/brand — i.e. every
+    # price-only or allergen-only filter with no brand/tags/category was
+    # silently returning unfiltered results. Fix: ALL mandatory MATCH
+    # clauses go first, then the single WHERE block, then OPTIONAL MATCH
+    # clauses (added only for display enrichment, never for filtering) last.
+    mandatory_matches = ["MATCH (p:Product)"]
+    optional_matches: list[str] = []
     where_clauses = []
     params: dict = {}
     return_clause = (
@@ -303,15 +370,20 @@ def _try_template(entities: dict) -> tuple[str, dict] | None:
     )
 
     if category:
-        match_clauses.append("MATCH (p)-[:BELONGS_TO]->(c:Category {name: $category})")
+        mandatory_matches.append("MATCH (p)-[:BELONGS_TO]->(c:Category {name: $category})")
         params["category"] = category
     else:
-        match_clauses.append("OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)")
+        optional_matches.append("OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)")
 
-    match_clauses.append("OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)")
+    if brand:
+        mandatory_matches.append("MATCH (p)-[:MADE_BY]->(b:Brand)")
+        where_clauses.append("toLower(b.name) = toLower($brand)")
+        params["brand"] = brand
+    else:
+        optional_matches.append("OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)")
 
     for i, tag in enumerate(tags):
-        match_clauses.append(f"MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: $tag_{i}}})")
+        mandatory_matches.append(f"MATCH (p)-[:HAS_TAG]->(:DietaryTag {{name: $tag_{i}}})")
         params[f"tag_{i}"] = tag
 
     if max_p is not None:
@@ -327,16 +399,68 @@ def _try_template(entities: dict) -> tuple[str, dict] | None:
         )
         params[f"excl_{i}"] = allergen
 
-    cypher = "\n".join(match_clauses)
-    if where_clauses:
-        cypher += "\nWHERE " + " AND ".join(where_clauses)
-    cypher += "\n" + return_clause
+    match_block    = "\n".join(mandatory_matches)
+    where_block    = ("\nWHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    optional_block = ("\n" + "\n".join(optional_matches)) if optional_matches else ""
+
+    cypher = match_block + where_block + optional_block + "\n" + return_clause
+    count_cypher = match_block + where_block + "\nRETURN count(DISTINCT p) AS total"
 
     # Only return template if at least one constraint was applied
     if tags or category or max_p or min_p or allergens or brand:
-        return cypher, params
+        return cypher, params, count_cypher
 
-    return None  # no constraints → let LLM handle it
+    return None  # no constraints → build_cypher decides what to do
+
+
+_MATCH_CLAUSE_RE = re.compile(r"\b(OPTIONAL\s+MATCH|MATCH)\b", re.IGNORECASE)
+_WHERE_CLAUSE_RE = re.compile(r"\bWHERE\b", re.IGNORECASE)
+
+
+def _where_scoped_to_optional_match(cypher: str) -> bool:
+    """
+    True if any WHERE in the query immediately follows an OPTIONAL MATCH
+    rather than a plain MATCH. Confirmed live against real Neo4j: Cypher
+    scopes WHERE to whichever read clause directly precedes it, regardless
+    of which variables the WHERE actually references — if that clause is
+    OPTIONAL MATCH, the condition becomes part of the optional pattern (a
+    failed check just nulls the optional binding) instead of a row filter,
+    so it silently stops excluding non-matching rows.
+    """
+    clauses = [
+        (m.start(), "OPTIONAL" if m.group(1).upper().startswith("OPTIONAL") else "MATCH")
+        for m in _MATCH_CLAUSE_RE.finditer(cypher)
+    ]
+    for wm in _WHERE_CLAUSE_RE.finditer(cypher):
+        preceding = [c for c in clauses if c[0] < wm.start()]
+        if preceding and preceding[-1][1] == "OPTIONAL":
+            return True
+    return False
+
+
+def _has_no_filter_condition(cypher: str) -> bool:
+    """
+    True if the query filters nothing at all — no WHERE clause, and no
+    inline {...} property constraint on any non-optional MATCH. Confirmed
+    live: for "lookup" queries with no identifiable search term, the LLM
+    sometimes generates exactly this — just the base Product match plus
+    OPTIONAL MATCH enrichment clauses, no filter anywhere — which silently
+    returns an arbitrary, unconstrained slice of the catalog instead of
+    recognizing there's nothing to search for.
+    """
+    if _WHERE_CLAUSE_RE.search(cypher):
+        return False
+
+    markers = list(_MATCH_CLAUSE_RE.finditer(cypher))
+    for i, m in enumerate(markers):
+        is_optional = m.group(1).upper().startswith("OPTIONAL")
+        if is_optional:
+            continue
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(cypher)
+        clause_text = cypher[m.start():end]
+        if re.search(r"\{[^}]*:", clause_text):
+            return False
+    return True
 
 
 def _validate_cypher(cypher: str) -> tuple[bool, str | None]:
@@ -351,6 +475,21 @@ def _validate_cypher(cypher: str) -> tuple[bool, str | None]:
         return False, "Destructive operations not allowed"
     if "CREATE" in cypher_upper or "MERGE" in cypher_upper:
         return False, "Write operations not allowed"
+    if _has_no_filter_condition(cypher):
+        return False, (
+            "Query has no WHERE clause and no inline property constraint on "
+            "any non-optional MATCH, so it filters nothing and would return "
+            "an arbitrary slice of the catalog. If there is no identifiable "
+            "search term in the user's query, return an empty cypher string "
+            "instead of an unconstrained one."
+        )
+    if _where_scoped_to_optional_match(cypher):
+        return False, (
+            "WHERE immediately follows an OPTIONAL MATCH, which scopes the "
+            "filter to that optional pattern only — it will not exclude "
+            "non-matching rows. Move WHERE immediately after the first "
+            "(non-optional) MATCH, before any OPTIONAL MATCH clauses."
+        )
 
     return True, None
 
@@ -472,12 +611,26 @@ def execute_query(state: AgentState) -> dict:
     Node 4: Execute Cypher against Neo4j and return raw results.
     Handles retry logic — if cypher_valid is False, bumps retry counter.
     """
-    cypher  = state.get("cypher_query")
-    params  = state.get("cypher_params") or {}
-    valid   = state.get("cypher_valid", False)
-    retries = state.get("cypher_retries", 0)
+    cypher       = state.get("cypher_query")
+    params       = state.get("cypher_params") or {}
+    count_cypher = state.get("cypher_count_query")
+    valid        = state.get("cypher_valid", False)
+    retries      = state.get("cypher_retries", 0)
 
     log.info(f"[Node 4] execute_query | valid={valid} | retries={retries}")
+
+    # build_cypher already decided there's nothing to search for (no
+    # entities extracted, non-lookup intent) — raw_results/result_count are
+    # already set to empty in state; nothing to run against Neo4j.
+    # LangGraph requires every node to write at least one state key, so this
+    # re-states build_cypher's values rather than returning {}.
+    if cypher is None:
+        log.info("[Node 4] No cypher to run — passing through build_cypher's empty result")
+        return {
+            "raw_results":  state.get("raw_results", []),
+            "result_count": state.get("result_count", 0),
+            "total_count":  state.get("total_count", 0),
+        }
 
     # If Cypher is invalid and we have retries left → signal retry
     if not valid:
@@ -499,10 +652,16 @@ def execute_query(state: AgentState) -> dict:
             result = session.run(cypher, params)
             records = [dict(r) for r in result]
 
-        log.info(f"[Node 4] Neo4j returned {len(records)} records")
+            total_count = None
+            if count_cypher:
+                count_record = session.run(count_cypher, params).single()
+                total_count = count_record["total"] if count_record else len(records)
+
+        log.info(f"[Node 4] Neo4j returned {len(records)} records (total_count={total_count})")
         return {
             "raw_results":  records,
             "result_count": len(records),
+            "total_count":  total_count,
             "cypher_used":  cypher,
         }
 
@@ -511,6 +670,7 @@ def execute_query(state: AgentState) -> dict:
         return {
             "raw_results":  [],
             "result_count": 0,
+            "total_count":  None,
             "error":        str(e),
             "cypher_valid": False,
             "cypher_error": str(e),
@@ -525,33 +685,55 @@ def execute_query(state: AgentState) -> dict:
 
 FORMAT_SYSTEM = """You are a helpful grocery product assistant.
 
-The user asked a question and a knowledge graph returned results.
+The user asked a question and a knowledge graph returned matching products.
 Write a clear, friendly answer in 2-4 sentences.
 
 Rules:
-- Lead with the count: "Found X products matching your search."
+- Lead with the exact count given to you in the prompt (e.g. "Found 29 matching products, showing the top 10" if a total is given and it's larger than what's shown, otherwise "Found 10 matching products"). Never invent your own count or assume the number of results shown is the total.
 - Mention the top 2-3 results with name and price
 - If no results: say so and suggest relaxing the filters
 - Keep it concise — no bullet points, no markdown
 - Never make up products that aren't in the results"""
+
+# Analytics answers describe aggregate rows (categories/brands/tags), not a
+# list of matching products — the product-search framing above ("Found X
+# matching your search") doesn't fit an aggregation and was found to read as
+# off-topic (an eval run scored several factually-correct analytics answers
+# 0.0 on correctness, all using that phrasing — see evaluation/deepeval_results.json).
+ANALYTICS_FORMAT_SYSTEM = """You are a helpful grocery product assistant.
+
+The user asked an aggregate question (a count, average, or ranking) and a
+knowledge graph returned the aggregate data. Write a clear, direct answer in
+2-4 sentences.
+
+Rules:
+- Answer the question directly with the top result first — do NOT say "Found X results matching your search" or similar; this is aggregate data, not a list of matching products.
+- Cite exact names and numbers from the data given to you
+- Mention 2-3 more rows of context if useful
+- Keep it concise — no bullet points, no markdown
+- Never make up numbers or names that aren't in the data"""
 
 
 def format_answer(state: AgentState) -> dict:
     """
     Node 5: Format raw results into plain-English answer via Groq.
     """
-    query   = state["query"]
-    results = state.get("raw_results") or []
-    count   = state.get("result_count", 0)
-    error   = state.get("error")
+    query       = state["query"]
+    results     = state.get("raw_results") or []
+    count       = state.get("result_count", 0)
+    total_count = state.get("total_count")
+    error       = state.get("error")
 
     log.info(f"[Node 5] format_answer | results={count} | error={error}")
 
-    # Handle error state
+    # Handle error state. The real error is already logged above (and
+    # server-side in execute_query/build_cypher) — it's an internal Cypher
+    # validation/execution detail (e.g. "no filter condition"), not
+    # something a user asking a product question should see verbatim.
     if error and not results:
         return {
             "answer": (
-                f"I wasn't able to complete that search. {error}. "
+                f"I wasn't able to complete that search for '{query}'. "
                 "Try rephrasing your query or relaxing the filters."
             )
         }
@@ -582,6 +764,7 @@ def format_answer(state: AgentState) -> dict:
             "Answer the user's question directly using this data. "
             "Be specific — mention actual names and numbers from the results."
         )
+        answer = generate(system=ANALYTICS_FORMAT_SYSTEM, prompt=prompt)
     else:
         results_text = "\n".join(
             f"- {r.get('item_name') or r.get('p.item_name', 'Unknown')} | "
@@ -590,14 +773,18 @@ def format_answer(state: AgentState) -> dict:
             f"Category: {r.get('category') or 'unknown'}"
             for r in top
         )
+        if total_count is not None and total_count > count:
+            count_line = f"Total matching products: {total_count} (showing top {count})"
+        else:
+            count_line = f"Total results found: {count}"
         prompt = (
             f"User query: {query}\n"
-            f"Total results found: {count}\n"
+            f"{count_line}\n"
             f"Top results:\n{results_text}\n\n"
             "Write a helpful answer mentioning product names and prices."
         )
+        answer = generate(system=FORMAT_SYSTEM, prompt=prompt)
 
-    answer = generate(system=FORMAT_SYSTEM, prompt=prompt)
     log.info(f"[Node 5] answer generated ({len(answer)} chars)")
 
     return {"answer": answer}

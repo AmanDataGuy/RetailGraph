@@ -5,6 +5,7 @@ All agent nodes call generate() or generate_json() from here.
 """
 
 import os
+import re
 import json
 import logging
 from typing import Optional
@@ -18,17 +19,19 @@ log = logging.getLogger("retailgraph.llm")
 # ── Client pool — rotates across multiple Groq API keys ─────────────────────
 # A concurrency stress test (16 parallel requests) hit Groq's per-minute
 # token limit (TPM: 8000 on a single free-tier key) and failed 2/16 requests
-# outright. GROQ_API_KEY is required; GROQ_API_KEY_1..GROQ_API_KEY_3 are
-# optional extra keys, tried in order once the current one 429s. The index
-# persists across calls so an exhausted key isn't retried on every request.
-_API_KEYS = [
-    k for k in [
-        os.getenv("GROQ_API_KEY"),
-        os.getenv("GROQ_API_KEY_1"),
-        os.getenv("GROQ_API_KEY_2"),
-        os.getenv("GROQ_API_KEY_3"),
-    ] if k
-]
+# outright; a later all-keys-exhausted run hit the per-day (TPD) cap across
+# every key. GROQ_API_KEY is required; any GROQ_API_KEY_<N> is an optional
+# extra key, tried in order once the current one 429s. Scanned dynamically
+# (not hardcoded to _1/_2/_3) and sorted numerically — the numbering doesn't
+# have to be contiguous (e.g. keys added as _2.._8 with no _1 still all get
+# picked up). The index persists across calls so an exhausted key isn't
+# retried on every request.
+_numbered_keys = sorted(
+    (int(m.group(1)), v)
+    for k, v in os.environ.items()
+    if (m := re.fullmatch(r"GROQ_API_KEY_(\d+)", k)) and v
+)
+_API_KEYS = [k for k in [os.getenv("GROQ_API_KEY"), *(v for _, v in _numbered_keys)] if k]
 if not _API_KEYS:
     raise RuntimeError("No GROQ_API_KEY configured — set at least GROQ_API_KEY in .env")
 

@@ -31,13 +31,15 @@ class AgentState(TypedDict):
     # ── Cypher path (Node 3a) ─────────────────────────────────────────────
     cypher_query: Optional[str]         # generated Cypher string (uses $bound params, never inlined values)
     cypher_params: Optional[dict]       # bound parameters for cypher_query
+    cypher_count_query: Optional[str]   # mirrors cypher_query's MATCH/WHERE but RETURNs count(DISTINCT p) — set only for template-built queries
     cypher_valid: Optional[bool]        # passed validation?
     cypher_error: Optional[str]         # validation error if any
     cypher_retries: int                 # retry counter (max 2)
 
     # ── Execution (Node 4) ────────────────────────────────────────────────
     raw_results: Optional[list]         # list of product dicts from Neo4j/Qdrant
-    result_count: int                   # how many results returned
+    result_count: int                   # how many results returned (capped by LIMIT)
+    total_count: Optional[int]          # true match count before LIMIT, when known (Cypher template path only)
 
     # ── Answer formatting (Node 5) ────────────────────────────────────────
     answer: Optional[str]               # final plain-English answer
@@ -63,11 +65,13 @@ def make_initial_state(query: str) -> AgentState:
         route=None,
         cypher_query=None,
         cypher_params=None,
+        cypher_count_query=None,
         cypher_valid=None,
         cypher_error=None,
         cypher_retries=0,
         raw_results=None,
         result_count=0,
+        total_count=None,
         answer=None,
         cypher_used=None,
         error=None,

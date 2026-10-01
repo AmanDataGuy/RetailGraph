@@ -4,12 +4,13 @@ GET  /products/{product_id} — single product with graph context
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from src.api.models import (
     SearchRequest, SearchResponse, ProductResult,
     ProductDetail,
 )
+from src.api.limiter import limiter
 
 router = APIRouter()
 log    = logging.getLogger("retailgraph.api.search")
@@ -18,7 +19,8 @@ log    = logging.getLogger("retailgraph.api.search")
 # ── POST /search ───────────────────────────────────────────────────────────
 
 @router.post("/search", response_model=SearchResponse, tags=["Search"])
-async def search_products(request: SearchRequest):
+@limiter.limit("60/minute")
+def search_products(request: Request, body: SearchRequest):
     """
     Direct product search — bypasses the LangGraph agent for speed.
 
@@ -33,34 +35,34 @@ async def search_products(request: SearchRequest):
     from src.graph.hybrid_search import HybridSearch
     from src.graph.queries import GraphQueries
 
-    log.info(f"POST /search | query='{request.query}' filters={request.dietary_tags}")
+    log.info(f"POST /search | query='{body.query}' filters={body.dietary_tags}")
 
     # Build filter kwargs
     kwargs = {}
-    if request.category:
-        kwargs["category"] = request.category
-    if request.max_price is not None:
-        kwargs["max_price"] = request.max_price
-    if request.dietary_tags:
-        kwargs["dietary_tags"] = request.dietary_tags
+    if body.category:
+        kwargs["category"] = body.category
+    if body.max_price is not None:
+        kwargs["max_price"] = body.max_price
+    if body.dietary_tags:
+        kwargs["dietary_tags"] = body.dietary_tags
 
     try:
-        if request.query:
+        if body.query:
             # Semantic + optional filters → hybrid search
             hs      = HybridSearch()
-            raw     = hs.search(request.query, top_k=request.top_k, **kwargs)
+            raw     = hs.search(body.query, top_k=body.top_k, **kwargs)
             search_type = "hybrid" if kwargs else "semantic"
 
         else:
             # Filter only → pure Cypher via GraphQueries
             gq  = GraphQueries()
             raw = gq.get_products(
-                tags              = request.dietary_tags or None,
-                category          = request.category,
-                max_price         = request.max_price,
-                min_price         = request.min_price,
-                exclude_allergens = request.exclude_allergens or None,
-                limit             = request.top_k,
+                tags              = body.dietary_tags or None,
+                category          = body.category,
+                max_price         = body.max_price,
+                min_price         = body.min_price,
+                exclude_allergens = body.exclude_allergens or None,
+                limit             = body.top_k,
             )
             gq.close()
             search_type = "filter"
@@ -96,7 +98,7 @@ async def search_products(request: SearchRequest):
 # ── GET /products/{product_id} ─────────────────────────────────────────────
 
 @router.get("/products/{product_id}", response_model=ProductDetail, tags=["Products"])
-async def get_product(product_id: str):
+def get_product(product_id: str):
     """
     Fetch a single product by ID with full graph context.
 

@@ -6,17 +6,28 @@ Returns the answer, results, Cypher used, and latency.
 
 import time
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from src.api.models import QueryRequest, QueryResponse, ProductResult
 from src.agent.graph import run_query
+from src.api.limiter import limiter
 
 router = APIRouter()
 log    = logging.getLogger("retailgraph.api.query")
 
 
+# 20/minute per IP: each call spends a real Groq token budget (1-3 LLM
+# calls). Tighter than /search since /search never touches an LLM.
+#
+# Plain `def`, not `async def`: run_query() is fully synchronous (blocking
+# neo4j/groq/qdrant SDK calls, no awaits). An `async def` handler with no
+# `await` runs on the single event-loop thread and blocks it for the whole
+# request — under concurrent load, requests serialize instead of running in
+# parallel (confirmed: 17/20 concurrent requests timed out before this fix).
+# A sync `def` handler lets Starlette dispatch it to its thread pool instead.
 @router.post("/query", response_model=QueryResponse, tags=["Agent"])
-async def query_agent(request: QueryRequest):
+@limiter.limit("20/minute")
+def query_agent(request: Request, body: QueryRequest):
     """
     Run a natural language query through the RetailGraph LangGraph agent.
 
@@ -33,11 +44,11 @@ async def query_agent(request: QueryRequest):
     - `which category has the most products`
     - `tell me about McCormick products`
     """
-    log.info(f"POST /query | query='{request.query}'")
+    log.info(f"POST /query | query='{body.query}'")
     start = time.perf_counter()
 
     try:
-        state = run_query(request.query)
+        state = run_query(body.query)
     except Exception as e:
         log.error(f"Agent error: {e}")
         raise HTTPException(status_code=500, detail="Agent error — please try again.")
@@ -65,11 +76,12 @@ async def query_agent(request: QueryRequest):
             continue
 
     return QueryResponse(
-        query        = request.query,
+        query        = body.query,
         answer       = state.get("answer") or "No answer generated.",
         intent       = state.get("intent"),
         route        = state.get("route"),
         result_count = state.get("result_count", len(results)),
+        total_matches = state.get("total_count"),
         results      = results,
         cypher_used  = state.get("cypher_used"),
         latency_ms   = latency_ms,

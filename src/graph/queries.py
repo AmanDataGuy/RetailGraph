@@ -276,6 +276,16 @@ LIMIT $limit
 """
         return self._run(cypher, {"limit": limit})
 
+    def count_brands(self) -> int:
+        """
+        True count of distinct brands in the graph. Not `len(get_top_brands())`
+        — that's capped by its own LIMIT, so /v1/analytics was reporting the
+        page size (20) as the total brand count instead of the real total.
+        """
+        cypher = "MATCH (b:Brand) RETURN count(DISTINCT b) AS total"
+        result = self._run(cypher)
+        return result[0]["total"] if result else 0
+
     # ── 10. Price range search ────────────────────────────────────────────────
 
     def get_products_by_price_range(

@@ -20,20 +20,28 @@ import time
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from src.api.routes.query     import router as query_router
-from src.api.routes.search    import router as search_router
-from src.api.routes.analytics import router as analytics_router
-
 # ── Logging ────────────────────────────────────────────────────────────────
+# Configured before the route imports below — those imports transitively
+# pull in modules (e.g. src/agent/llm.py) that log.info() at import time
+# (e.g. "Groq key pool: N key(s) configured"). Without a handler/level
+# configured first, Python's logging silently drops INFO-level records
+# instead of buffering them, so that startup log was never actually visible.
 logging.basicConfig(
     level  = logging.INFO,
     format = "%(asctime)s  %(name)s  %(message)s",
     datefmt= "%H:%M:%S",
 )
 log = logging.getLogger("retailgraph.api")
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from src.api.limiter import limiter
+from src.api.routes.query     import router as query_router
+from src.api.routes.search    import router as search_router
+from src.api.routes.analytics import router as analytics_router
 
 
 # ── Lifespan: startup / shutdown ───────────────────────────────────────────
@@ -68,6 +76,8 @@ app = FastAPI(
     docs_url    = "/docs",
     redoc_url   = "/redoc",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS — allow all origins for portfolio/demo ────────────────────────────
 # No cookie/session auth anywhere in this API, so allow_credentials stays
