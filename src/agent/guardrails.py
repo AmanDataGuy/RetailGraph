@@ -43,6 +43,17 @@ _INJECTION_PATTERNS = [
 # for the offline-eval equivalent of this check).
 _TOXIC_WORDS = {"fuck", "shit", "bitch", "asshole", "nigger", "faggot", "cunt"}
 
+# Matches each word as a prefix with word-boundaries on both sides — catches
+# inflections ("fucking", "shitty") that an exact-token-set check misses
+# (found adversarially: "show me snacks you fucking idiot" wasn't blocked,
+# since {"fucking"} & _TOXIC_WORDS is empty even though {"fuck"} & it isn't).
+# The leading \b still prevents substring false-positives mid-word (e.g.
+# "Scunthorpe" has no word boundary immediately before its "cunt" substring).
+_TOXIC_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(w) for w in _TOXIC_WORDS) + r")\w*\b",
+    re.IGNORECASE,
+)
+
 
 def check_input(query: str) -> dict:
     """
@@ -57,8 +68,7 @@ def check_input(query: str) -> dict:
     if any(p.search(query) for p in _INJECTION_PATTERNS):
         categories.append("prompt_injection")
 
-    words = set(re.findall(r"[a-z']+", query.lower()))
-    if words & _TOXIC_WORDS:
+    if _TOXIC_PATTERN.search(query):
         categories.append("toxicity")
 
     if not categories:

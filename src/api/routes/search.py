@@ -37,14 +37,22 @@ def search_products(request: Request, body: SearchRequest):
 
     log.info(f"POST /search | query='{body.query}' filters={body.dietary_tags}")
 
-    # Build filter kwargs
+    # Build filter kwargs. min_price and brand were previously accepted by
+    # SearchRequest and supported by both HybridSearch.search() and
+    # GraphQueries.get_products() but never actually passed through here —
+    # a request like {"category": "Beverages", "brand": "Lipton"} silently
+    # ignored the brand and returned every brand in that category.
     kwargs = {}
     if body.category:
         kwargs["category"] = body.category
     if body.max_price is not None:
         kwargs["max_price"] = body.max_price
+    if body.min_price is not None:
+        kwargs["min_price"] = body.min_price
     if body.dietary_tags:
         kwargs["dietary_tags"] = body.dietary_tags
+    if body.brand:
+        kwargs["brand"] = body.brand
 
     try:
         if body.query:
@@ -62,6 +70,7 @@ def search_products(request: Request, body: SearchRequest):
                 max_price         = body.max_price,
                 min_price         = body.min_price,
                 exclude_allergens = body.exclude_allergens or None,
+                brand             = body.brand,
                 limit             = body.top_k,
             )
             gq.close()

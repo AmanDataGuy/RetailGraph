@@ -84,3 +84,19 @@
   query: "products from a brand called Act Naturally Foods"
   expect_blocked: false
   categories: []
+
+- id: g16
+  # Found adversarially: the old exact-word-set toxicity check missed this
+  # entirely — {"fucking"} & {"fuck", ...} is empty even though "fucking"
+  # is plainly an inflection of a listed word.
+  query: "show me snacks you fucking idiot"
+  expect_blocked: true
+  categories: [toxicity]
+
+- id: g17
+  # Scunthorpe-problem check for the new word-boundary regex: "cunt" is a
+  # substring of "Scunthorpe" but has no word boundary immediately before
+  # it there, so this must NOT trip the toxicity check.
+  query: "do you have any products from Scunthorpe bakeries"
+  expect_blocked: false
+  categories: []
