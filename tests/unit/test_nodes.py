@@ -1,30 +1,30 @@
 """
-Unit tests for src/agent/nodes.py — the pieces that don't need a live
-Groq/Neo4j/Qdrant connection: route_query (pure), _try_template (pure),
-_validate_cypher (pure), and the ALLOWED_CATEGORIES/ALLOWED_TAGS vocabulary.
+# test_nodes.py - unit tests for agent/nodes.py that need no live Groq/Neo4j/Qdrant
 
-Before this file, src/agent/nodes.py had zero test coverage despite being
-the LangGraph agent's router and Cypher-template logic — see RUTHLESS_AUDIT.md
-Phase 4. These tests lock in the router-misclassification and vocabulary
-findings from that audit so they can't silently regress.
+- Covers routing, Cypher templates and validation, node edge cases and the tag/category vocabulary.
 """
 
-import pytest
+import sys
+import types
 
-from src.agent.nodes import (
-    route_query,
-    build_cypher,
-    execute_query,
-    format_answer,
-    FORMAT_SYSTEM,
+import pytest
+from retailgraph.agent.nodes import (
+    ALLOWED_CATEGORIES,
+    ALLOWED_TAGS,
     ANALYTICS_FORMAT_SYSTEM,
+    FORMAT_SYSTEM,
+    _has_no_filter_condition,
     _try_template,
     _validate_cypher,
     _where_scoped_to_optional_match,
-    _has_no_filter_condition,
-    ALLOWED_CATEGORIES,
-    ALLOWED_TAGS,
+    build_cypher,
+    execute_query,
+    extract_intent,
+    format_answer,
+    hybrid_search_node,
+    route_query,
 )
+from retailgraph.graph.queries import allergen_terms
 
 
 # ── route_query ────────────────────────────────────────────────────────────
@@ -49,8 +49,7 @@ class TestRouteQuery:
         assert route_query({}) == "cypher"
 
     def test_unknown_intent_defaults_to_cypher(self):
-        # An intent value outside the 5-item enum falls through to cypher —
-        # documents the current behavior, not necessarily the ideal one.
+        # Unknown intents fall through to cypher (current behaviour, not necessarily ideal).
         assert route_query({"intent": "something_new"}) == "cypher"
 
 
@@ -58,8 +57,7 @@ class TestRouteQuery:
 class TestTryTemplate:
 
     def test_no_constraints_returns_none(self):
-        # build_cypher treats this as "nothing to search on" for non-lookup
-        # intents rather than falling back to the LLM (see TestBuildCypher).
+        # build_cypher then returns zero results for non-lookup intents (see TestBuildCypher).
         assert _try_template({}) is None
 
     def test_brand_only_returns_brand_lookup_template(self):
@@ -77,8 +75,7 @@ class TestTryTemplate:
         cypher, params, count_cypher = result
         assert params["category"] == "Beverages"
         assert params["max_price"] == 5.0
-        # Values must be bound params, never interpolated into the string —
-        # this is the injection defense the audit confirmed is real.
+        # Values must be bound params, never interpolated (injection defence).
         assert "Beverages" not in cypher
         assert "5.0" not in cypher
         assert "count(DISTINCT p)" in count_cypher
@@ -95,12 +92,10 @@ class TestTryTemplate:
         assert result is not None
         cypher, params, count_cypher = result
         assert "NOT EXISTS" in cypher
-        assert params["excl_0"] == "peanut"
+        assert params["excl_0"] == ["peanut"]   # substring terms, so "peanuts" also matches
 
     def test_apostrophe_in_brand_does_not_break_query(self):
-        # The exact "Reese's" case ROADMAP.md flagged as the pre-fix
-        # injection risk — must round-trip as a bound param, not break
-        # the Cypher string.
+        # An apostrophe must round-trip as a bound param, not break the Cypher string.
         result = _try_template({"brand": "Reese's"})
         assert result is not None
         cypher, params, count_cypher = result
@@ -108,12 +103,7 @@ class TestTryTemplate:
         assert "Reese's" not in cypher
 
     def test_brand_combined_with_category_is_actually_filtered(self):
-        # Bug found via evaluation/deepeval_results.json + code read: when
-        # brand was combined with category/tags, the dynamic query builder
-        # never bound $brand into a WHERE clause — it only checked
-        # `if ... or brand` to decide whether to return a template at all,
-        # so "gluten-free products from McCormick" silently ignored the
-        # brand and matched gluten-free products from every brand.
+        # brand combined with category/tags must still be bound into a WHERE clause.
         result = _try_template({"category": "Condiments & Sauces", "brand": "McCormick"})
         assert result is not None
         cypher, params, count_cypher = result
@@ -129,14 +119,7 @@ class TestTryTemplate:
         assert "toLower(b.name) = toLower($brand)" in cypher
 
     def test_price_only_filter_where_precedes_optional_match(self):
-        # Bug found live against real Neo4j during stress testing: a WHERE
-        # clause placed after an OPTIONAL MATCH scopes to that optional
-        # pattern only and never excludes rows — confirmed empirically that
-        # "products under $3" (price filter, no brand/tags/category) was
-        # returning completely unfiltered results because the WHERE always
-        # landed after the unconditional OPTIONAL MATCH category/brand
-        # clauses. No part of the generated query may have WHERE appear
-        # after any OPTIONAL MATCH.
+        # A WHERE after an OPTIONAL MATCH stops filtering rows, so no WHERE may follow one.
         result = _try_template({"max_price": 3.0})
         assert result is not None
         cypher, params, count_cypher = result
@@ -150,9 +133,7 @@ class TestTryTemplate:
         assert not _where_scoped_to_optional_match(cypher)
 
     def test_brand_plus_price_no_tags_brand_is_mandatory_match(self):
-        # The specific combination that was still broken after the first
-        # brand fix: brand + price, no tags/category, so nothing else
-        # happened to follow the brand match and "absorb" the WHERE scope.
+        # brand + price with no tags/category: the WHERE must still precede every OPTIONAL MATCH.
         result = _try_template({"brand": "McCormick", "max_price": 10.0})
         assert result is not None
         cypher, params, count_cypher = result
@@ -209,9 +190,7 @@ class TestHasNoFilterCondition:
         assert _has_no_filter_condition(cypher) is False
 
     def test_inline_constraint_on_optional_match_does_not_count(self):
-        # An inline constraint on an OPTIONAL MATCH still doesn't exclude
-        # non-matching rows (same null-don't-exclude problem) — only
-        # non-optional MATCH constraints count as a real filter.
+        # An inline constraint on an OPTIONAL MATCH does not exclude rows, so it is not a filter.
         cypher = "MATCH (p:Product) OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand {name: 'Heinz'}) RETURN p"
         assert _has_no_filter_condition(cypher) is True
 
@@ -220,16 +199,10 @@ class TestHasNoFilterCondition:
 class TestBuildCypher:
 
     def test_no_entities_filter_intent_short_circuits_no_llm_call(self, monkeypatch):
-        # Bug found in evaluation/deepeval_results.json (q28: "asdkjfh qwerty
-        # products xyz123", ground truth 0 matches) — with zero entities
-        # extracted, build_cypher used to fall back to LLM-generated Cypher,
-        # which returned an arbitrary top-10-by-price result set instead of
-        # "no matches" for a query with no real signal. "filter" intent with
-        # no entities must now resolve to zero results without ever calling
-        # the LLM.
+        # "filter" intent with no entities must give zero results without calling the LLM.
         def _boom(*a, **k):
             raise AssertionError("generate_json should not be called for a no-entity filter query")
-        monkeypatch.setattr("src.agent.nodes.generate_json", _boom)
+        monkeypatch.setattr("retailgraph.agent.nodes.generate_json", _boom)
 
         result = build_cypher({
             "query": "asdkjfh qwerty products xyz123",
@@ -243,14 +216,12 @@ class TestBuildCypher:
         assert result["total_count"] == 0
 
     def test_no_entities_lookup_intent_still_calls_llm(self, monkeypatch):
-        # "lookup" intent (a specific product/brand by name) has no
-        # dedicated entity field to template against, so it still needs the
-        # LLM fallback — this must NOT be short-circuited.
+        # "lookup" has no entity field to template against, so it must still reach the LLM.
         called = {}
         def _fake_generate_json(system, prompt):
             called["hit"] = True
             return {"cypher": "MATCH (p:Product) RETURN p LIMIT 10"}
-        monkeypatch.setattr("src.agent.nodes.generate_json", _fake_generate_json)
+        monkeypatch.setattr("retailgraph.agent.nodes.generate_json", _fake_generate_json)
 
         result = build_cypher({
             "query": "tell me about the Solely banana bar",
@@ -275,13 +246,11 @@ class TestBuildCypher:
 class TestExecuteQuery:
 
     def test_no_cypher_returns_nonempty_dict(self):
-        # Regression: LangGraph requires every node to write at least one
-        # state key — returning {} here crashed every zero-entity query with
-        # "Must write to at least one of [...]" (500 Internal Server Error),
-        # only caught by running the actual containerized stack end to end,
-        # not by any unit test in isolation.
+        # LangGraph requires every node to write at least one state key; {} would crash.
+        # Same state build_cypher returns when there is nothing to search.
         result = execute_query({
             "cypher_query": None,
+            "cypher_valid": True,
             "raw_results": [],
             "result_count": 0,
             "total_count": 0,
@@ -301,15 +270,11 @@ class TestFormatAnswer:
             captured["system"] = system
             captured["prompt"] = prompt
             return "stub answer"
-        monkeypatch.setattr("src.agent.nodes.generate", _fake_generate)
+        monkeypatch.setattr("retailgraph.agent.nodes.generate", _fake_generate)
         return captured
 
     def test_truncated_results_get_count_aware_phrasing(self, monkeypatch):
-        # Bug found in evaluation/deepeval_results.json (q1: "vegan
-        # gluten-free snacks under $10", 21 actual matches, answer said
-        # "Found 10 products" — the LIMIT-10 page size was reported to the
-        # LLM as "Total results found", so it undercounted every time more
-        # than 10 products matched.
+        # The full match count, not the LIMIT-10 page size, must reach the LLM.
         captured = self._capture_generate(monkeypatch)
         state = {
             "query": "vegan gluten-free snacks under $10",
@@ -333,10 +298,7 @@ class TestFormatAnswer:
         assert "Total results found: 1" in captured["prompt"]
 
     def test_analytics_uses_analytics_system_prompt(self, monkeypatch):
-        # Bug found in evaluation/deepeval_results.json (q17-q19): analytics
-        # answers with factually correct numbers scored 0.0 on correctness,
-        # all sharing FORMAT_SYSTEM's product-search framing ("Found X
-        # products matching your search") applied to aggregate rows.
+        # Aggregate rows need the analytics prompt, not the product-search framing.
         captured = self._capture_generate(monkeypatch)
         state = {
             "query": "which category has the most products",
@@ -360,7 +322,7 @@ class TestFormatAnswer:
     def test_empty_results_never_calls_llm(self, monkeypatch):
         def _boom(*a, **k):
             raise AssertionError("generate should not be called for empty results")
-        monkeypatch.setattr("src.agent.nodes.generate", _boom)
+        monkeypatch.setattr("retailgraph.agent.nodes.generate", _boom)
 
         result = format_answer({"query": "xyz", "raw_results": [], "result_count": 0})
         assert "No products found" in result["answer"]
@@ -404,11 +366,7 @@ class TestValidateCypher:
         assert "OPTIONAL MATCH" in error
 
     def test_unconstrained_query_rejected(self):
-        # Bug found live: for a "lookup" query with no identifiable search
-        # term, the LLM sometimes generates a query with NO filter at all
-        # (just the base match plus enrichment OPTIONAL MATCHes) — this
-        # silently returned an arbitrary top-10 slice of the whole catalog
-        # instead of recognizing there was nothing to search for.
+        # A query with no filter at all would return an arbitrary slice of the catalog.
         cypher = (
             "MATCH (p:Product) "
             "OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand) "
@@ -424,40 +382,26 @@ class TestValidateCypher:
         assert valid is False
 
 
-# ── Vocabulary consistency — verified against the live Neo4j graph ────────
-# (MATCH (c:Category) / MATCH (t:DietaryTag), 2026-08-21). An earlier pass
-# matched src/extraction/extractor.py's SYSTEM_PROMPT text instead, which
-# turned out not to match what's actually in the graph — see the comment
-# above ALLOWED_CATEGORIES in nodes.py for the full story.
+# ── Vocabulary: must match the live Neo4j Category/DietaryTag nodes ────────
 class TestAllowedVocabulary:
 
     def test_keto_friendly_now_recognized_not_keto(self):
-        # The graph's real DietaryTag is "keto-friendly" (48 products) — a
-        # plain "keto" tag does not exist. "keto snacks" previously returned
-        # 0 results every time because of this exact mismatch.
+        # The graph's tag is "keto-friendly"; a plain "keto" tag does not exist.
         assert "keto-friendly" in ALLOWED_TAGS
         assert "keto" not in ALLOWED_TAGS
 
     def test_vegetarian_and_halal_recognized(self):
-        # Real, live tags (17 and 3 products respectively) that no prior
-        # version of this vocabulary included.
+        # Real tags with products in the live graph.
         assert "vegetarian" in ALLOWED_TAGS
         assert "halal" in ALLOWED_TAGS
 
     def test_dead_tags_removed(self):
-        # "paleo", "allergen-free", "cruelty-free" are in extractor.py's
-        # SYSTEM_PROMPT vocabulary but have zero matching products in the
-        # live graph — the model was told about them but never actually
-        # used them on this catalog.
+        # Prompt-only tags with zero products in the live graph.
         dead = {"paleo", "allergen-free", "cruelty-free"}
         assert ALLOWED_TAGS.isdisjoint(dead)
 
     def test_vocab_matches_live_graph_categories(self):
-        # Must match the live Category nodes exactly, not extractor.py's
-        # prompt text — the prompt text doesn't reflect what actually
-        # shipped (e.g. it says "Personal Care & Beauty", the graph has
-        # "Personal Care"; it says "Bread & Bakery", the graph has
-        # "Bakery & Bread"; several prompt categories have zero products).
+        # Must match the live Category nodes exactly.
         expected = {
             "Snacks & Candy", "Coffee & Tea", "Condiments & Sauces",
             "Beverages", "Spices & Seasonings", "Grains, Beans & Legumes",
@@ -467,3 +411,68 @@ class TestAllowedVocabulary:
             "Household & Cleaning",
         }
         assert ALLOWED_CATEGORIES == expected
+
+
+# ── Allergen terms and misc node fixes ──────────────────────────────────────
+class TestAllergenTerms:
+
+    def test_plural_maps_to_singular_substring(self):
+        assert allergen_terms("Peanuts") == ["peanut"]
+
+    def test_umbrella_words_expand(self):
+        assert "milk" in allergen_terms("dairy") and "butter" in allergen_terms("dairy")
+        assert {"almond", "cashew", "nut"} <= set(allergen_terms("nuts"))
+        assert "wheat" in allergen_terms("gluten")
+
+    def test_empty_word_excludes_nothing(self):
+        # "" would match every allergen via CONTAINS and wipe all results
+        assert allergen_terms("  ") == []
+
+
+class TestSweepFixes:
+
+    def test_non_gmo_tag_survives_intent_normalisation(self, monkeypatch):
+        monkeypatch.setattr("retailgraph.agent.nodes.generate_json",
+                            lambda **kw: {"intent": "filter", "dietary_tags": ["non-gmo", "Vegan"]})
+        out = extract_intent({"query": "non-gmo vegan snacks"})
+        assert out["entities"]["dietary_tags"] == ["non-GMO", "vegan"]
+
+    @pytest.mark.parametrize("bad", [
+        "MATCH (p:Product) WHERE p.price > 1 SET p.price = 0 RETURN p",
+        "MATCH (p:Product) WHERE p.price > 1 REMOVE p.price RETURN p",
+        "LOAD CSV FROM 'x' AS r MATCH (p:Product) WHERE p.price > 1 RETURN p",
+        "MATCH (p:Product) WHERE p.price > 1 CALL db.labels() YIELD label RETURN p",
+    ])
+    def test_write_and_procedure_clauses_blocked(self, bad):
+        valid, _ = _validate_cypher(bad)
+        assert not valid
+
+    def test_last_invalid_retry_reports_error(self):
+        out = execute_query({"cypher_query": "x", "cypher_valid": False,
+                             "cypher_retries": 1, "cypher_error": "bad"})
+        assert out["cypher_retries"] == 2 and out["error"] and out["raw_results"] == []
+
+    def test_hybrid_path_forwards_allergen_exclusions(self, monkeypatch):
+        seen = {}
+
+        class FakeHS:
+            def search(self, query, top_k, **kw):
+                seen.update(kw)
+                return []
+
+        monkeypatch.setitem(sys.modules, "retailgraph.graph.hybrid_search",
+                            types.SimpleNamespace(HybridSearch=FakeHS))
+        hybrid_search_node({"query": "protein bars", "entities": {
+            "exclude_allergens": ["peanut"], "brand": "Kind", "min_price": 2}})
+        assert seen == {"exclude_allergens": ["peanut"], "brand": "Kind", "min_price": 2}
+
+
+# Empty LLM Cypher on a lookup must count a retry, or the graph loops until LangGraph's recursion limit.
+def test_empty_llm_cypher_counts_a_retry():
+    out = execute_query({"cypher_query": None, "cypher_valid": False, "cypher_retries": 0})
+    assert out["cypher_retries"] == 1
+
+
+# A lone zero price is still a real filter, so it must produce a template.
+def test_zero_max_price_still_builds_template():
+    assert _try_template({"max_price": 0}) is not None

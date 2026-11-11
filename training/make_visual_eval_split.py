@@ -1,35 +1,10 @@
-"""
-training/make_visual_eval_split.py
+"""# make_visual_eval_split.py - writes a fixed 20% hold-out of visual_pairs.jsonl for scoring the visual fields
 
-Diagnoses and (partially) fixes the "94.2% vs 92.0%" eval gap: the 3 visual
-fields (packaging_type, packaging_color, has_brand_logo) have never been
-scored against a real held-out example — training/evaluate.py's val.jsonl
-has zero visual pairs in it, so those fields score 100% on N=0 and inflate
-the headline accuracy number.
-
-THE HONEST FINDING THIS SCRIPT SURFACES, NOT JUST FIXES:
-    All 500 of data/training/visual_pairs.jsonl were merged into
-    train_r3.jsonl and used in the actual Round-3 fine-tuning run — confirmed
-    here by checking image_path presence, not assumed. That means there is
-    no way to retroactively carve a clean, never-seen-by-the-model held-out
-    set from the current 500 for the CURRENT checkpoint — any split of them
-    now measures fit/memorization, not generalization.
-
-WHAT THIS SCRIPT DOES:
-    1. Confirms the leakage (every visual pair's product_id already appears
-       in the training files) — prints it, doesn't hide it.
-    2. Writes data/training/val_visual.jsonl: a deterministic 20% split
-       (100 of 500, fixed seed) in the same {messages, image_path} shape
-       training/evaluate.py already expects, so it's ready to use —
-       explicitly labeled in its own header comment as "contaminated for
-       the current checkpoint, clean for the next training round."
-    3. The real fix is a Round 4 change, not something this script can do
-       alone: exclude val_visual.jsonl's product_ids from train_r3's
-       successor before the next fine-tune, then this split is a genuine
-       held-out set from that point on.
-
-Usage:
-    venv/Scripts/python training/make_visual_eval_split.py
+- Input: data/training/visual_pairs.jsonl, train_r3.jsonl. Output: data/training/val_visual.jsonl ({messages, image_path}).
+- Why: val.jsonl has no visual pairs, so packaging_type / packaging_color / has_brand_logo score 100% on N=0.
+- Caveat: all 500 visual pairs were trained on in Round 3, so this split is only clean for a future round
+  that excludes these products first. The script prints that leakage warning.
+- Run: python training/make_visual_eval_split.py
 """
 
 import json
@@ -45,23 +20,14 @@ HOLDOUT_FRACTION = 0.20
 SEED = 42
 
 
-def _product_id(record: dict) -> str | None:
-    for m in record["messages"]:
-        if m["role"] == "assistant":
-            try:
-                return str(json.loads(m["content"]).get("product_id"))
-            except (json.JSONDecodeError, KeyError):
-                return None
-    return None
-
-
+# Warn about Round-3 leakage, then write the seeded 20% visual hold-out.
 def main():
-    visual_pairs = [json.loads(l) for l in VISUAL_PAIRS.read_text(encoding="utf-8").splitlines()]
+    visual_pairs = [json.loads(line) for line in VISUAL_PAIRS.read_text(encoding="utf-8").splitlines()]
     print(f"Loaded {len(visual_pairs)} visual pairs from {VISUAL_PAIRS.name}")
 
     trained_with_image = sum(
-        1 for l in TRAIN_FILE.read_text(encoding="utf-8").splitlines()
-        if "image_path" in json.loads(l)
+        1 for line in TRAIN_FILE.read_text(encoding="utf-8").splitlines()
+        if "image_path" in json.loads(line)
     )
     print(f"{trained_with_image} records with image_path found in {TRAIN_FILE.name} "
           f"(the file the actual Round-3 fine-tune loaded)")

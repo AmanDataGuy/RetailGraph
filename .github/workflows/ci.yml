@@ -1,0 +1,21 @@
+# # ci.yml - run the unit tests and lint on every push and pull request
+#
+# - Keyless: no .env, no Groq/Neo4j/Qdrant needed (LLM client is lazy, DBs are mocked).
+# - CPU-only torch first, because snorkel (weak-supervision tests) depends on it.
+
+name: ci
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+      - run: ruff check src tests

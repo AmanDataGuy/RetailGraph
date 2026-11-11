@@ -18,7 +18,10 @@ data/images/
 data/raw/
 checkpoints/
 mlruns*/
-evaluation/
+evaluation/*
+# The two result files the README cites are tracked as evidence.
+!evaluation/agent_eval_raw.json
+!evaluation/benchmark_results.json
 extraction_results/
 /extraction
 venv/
@@ -69,8 +72,16 @@ Thumbs.db
 .idea/
 
 # ── Model weights (track via MLflow, not Git) ─────────────────────────────────
+model_download/
+outputs/
 *.pt
 *.bin
 *.safetensors
 *.gguf
 training/data/
+
+# ── Local tool state and caches ───────────────────────────────────────────────
+.claude/
+.ruff_cache/
+.pytest_cache/
+.deepeval/

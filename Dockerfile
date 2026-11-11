@@ -1,7 +1,8 @@
-# RetailGraph — HuggingFace Spaces (Docker SDK) image.
-# Builds a single container running the FastAPI backend + Streamlit UI.
-# The fine-tuned Qwen2-VL weights are NOT here — inference ran offline; the app
-# only queries Neo4j (AuraDB) + Qdrant Cloud + Groq, all via env-var secrets.
+# # Dockerfile - one image for the FastAPI backend + Streamlit UI
+#
+# - Used by docker-compose (api + streamlit services) and by HF Spaces (start.sh runs both).
+# - The fine-tuned Qwen2-VL weights are NOT here: extraction ran offline; the app only
+#   queries Neo4j + Qdrant + Groq, configured through env vars.
 
 FROM python:3.11-slim
 
@@ -13,18 +14,19 @@ RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
-    PYTHONPATH=/home/user/app \
     PYTHONUNBUFFERED=1
 WORKDIR /home/user/app
 
-COPY --chown=user requirements-docker.txt .
-RUN pip install --no-cache-dir --user -r requirements-docker.txt
+# Dependencies first, in their own layer, so code edits don't reinstall them.
+COPY --chown=user pyproject.toml README.md ./
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > /tmp/req.txt \
+    && pip install --no-cache-dir --user -r /tmp/req.txt
 
 # Bake the embedding model into the image so the first query isn't a cold download.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='sentence-transformers/all-MiniLM-L6-v2')"
 
 COPY --chown=user . .
-RUN chmod +x start.sh
+RUN pip install --no-cache-dir --user --no-deps . && chmod +x start.sh
 
 EXPOSE 7860
 CMD ["./start.sh"]

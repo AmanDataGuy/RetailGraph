@@ -1,40 +1,27 @@
-"""
-training/llm_judge.py
+"""# llm_judge.py - LLM-as-Judge: scores category / dietary_tags / allergen_list predictions 1-5 semantically
 
-LLM-as-Judge evaluation for RetailGraph extraction quality.
-Uses GPT-4o-mini to score extractions semantically (not just exact string match).
-
-Reads:  evaluation/eval_results_r3  (678 examples from evaluate.py)
-Writes: evaluation/judge_results.json
-Logs:   MLflow (alongside field accuracy)
-
-Cost:   ~$0.50 for all 678 examples
-Time:   ~15-20 minutes
-
-Usage:
-    python training/llm_judge.py
-    python training/llm_judge.py --max-samples 20   # quick test
-    python training/llm_judge.py --fields category dietary_tags
+- Input: evaluation/eval_results_r3 (from evaluate.py). Output: evaluation/judge_results.json.
+- Judge: Groq openai/gpt-oss-120b. The existing judge_results.json was scored by GPT-4o-mini (2026-03).
+- Run: python training/llm_judge.py [--max-samples 20] [--fields category dietary_tags]
 """
 
-import os
-import json
-import time
 import argparse
+import json
+import os
+import time
 from pathlib import Path
+
 from dotenv import load_dotenv
-from openai import OpenAI
+from groq import Groq
 
 load_dotenv()
 
-# ── Config ────────────────────────────────────────────────────────────────────
 EVAL_FILE    = Path("evaluation/eval_results_r3")
 OUTPUT_FILE  = Path("evaluation/judge_results.json")
-MODEL        = "gpt-4o-mini"
+MODEL        = "openai/gpt-oss-120b"
 SLEEP_SEC    = 0.3   # between calls to avoid rate limits
 
-# Only judge these fields — the ones below 95% exact match
-JUDGE_FIELDS = ["category", "dietary_tags", "allergen_list"]
+JUDGE_FIELDS = ["category", "dietary_tags", "allergen_list"]   # the fields below 95% exact match
 
 SYSTEM_PROMPT = """You are evaluating a grocery product extraction model.
 Your job is to score how correct the model's prediction is compared to the ground truth.
@@ -55,14 +42,14 @@ Return ONLY valid JSON, no explanation, no markdown:
 {"score": <1-5>, "reason": "<one sentence>"}"""
 
 
+# Ask the judge to score one field 1-5; falls back to 3 if its reply is not JSON.
 def score_field(
-    client: OpenAI,
+    client: Groq,
     field: str,
     ground_truth,
     prediction,
     product_listing: str,
 ) -> dict:
-    """Ask GPT-4o-mini to score a single field."""
     prompt = f"""Product listing: {product_listing[:300]}
 
 Field: {field}
@@ -78,12 +65,12 @@ Score this prediction."""
             {"role": "user",   "content": prompt},
         ],
         temperature=0,
-        max_tokens=100,
+        max_tokens=300,
+        reasoning_effort="low",   # gpt-oss reasons before answering; reasoning counts toward max_tokens
     )
 
     text = response.choices[0].message.content.strip()
 
-    # Strip markdown if present
     if "```" in text:
         text = text.split("```")[1]
         if text.startswith("json"):
@@ -100,20 +87,19 @@ Score this prediction."""
         return {"score": 3, "reason": "parse error"}
 
 
+# Short product label for the judge prompt and the output file.
 def get_product_listing(example: dict) -> str:
-    """Extract product listing text from eval result."""
     pred = example.get("prediction", {})
     return pred.get("item_name", "") or f"Example {example['example_index']}"
 
 
+# Score every example, skipping the API call when both sides are empty or already an exact match.
 def run_judge(
-    client: OpenAI,
+    client: Groq,
     results: list[dict],
     fields: list[str],
     max_samples: int = None,
 ) -> list[dict]:
-    """Run LLM-as-Judge on all examples."""
-
     if max_samples:
         results = results[:max_samples]
 
@@ -135,12 +121,10 @@ def run_judge(
             gt_val   = gt.get(field)
             pred_val = pred.get(field)
 
-            # Skip if both are None/empty — no point judging
             if not gt_val and not pred_val:
                 field_scores[field] = {"score": 5, "reason": "both empty"}
                 continue
 
-            # If exact match already — skip API call, save credits
             exact_score = example.get("field_scores", {}).get(field, 0)
             if exact_score == 1.0:
                 field_scores[field] = {"score": 5, "reason": "exact match"}
@@ -177,8 +161,8 @@ def run_judge(
     return judged
 
 
+# Per-field score distribution, false negatives and overall semantic accuracy.
 def compute_summary(judged: list[dict], fields: list[str]) -> dict:
-    """Compute final summary stats."""
     summary = {}
 
     for field in fields:
@@ -190,7 +174,6 @@ def compute_summary(judged: list[dict], fields: list[str]) -> dict:
         if not scores:
             continue
 
-        exact_matches = sum(1 for ex in judged if ex["field_scores"].get(field, {}).get("score") == 5)
         false_negatives = sum(
             1 for ex in judged
             if ex["field_scores"].get(field, {}).get("score") == 5
@@ -205,7 +188,7 @@ def compute_summary(judged: list[dict], fields: list[str]) -> dict:
             "false_negatives":    false_negatives,
         }
 
-    # Overall semantic accuracy (score >= 4 across all judged fields)
+    # Overall semantic accuracy: every judged field scored >= 4.
     all_high = sum(
         1 for ex in judged
         if all(
@@ -219,13 +202,13 @@ def compute_summary(judged: list[dict], fields: list[str]) -> dict:
     return summary
 
 
+# CLI: load eval results, judge, print a summary and save JSON.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--fields", nargs="+", default=JUDGE_FIELDS)
     args = parser.parse_args()
 
-    # Load eval results
     print(f"Loading eval results from {EVAL_FILE}...")
     with open(EVAL_FILE, encoding="utf-8") as f:
         data = json.load(f)
@@ -234,11 +217,9 @@ def main():
     print(f"Loaded {len(results)} examples")
     print(f"Existing field accuracy: {data['field_accuracy']}\n")
 
-    # Run judge
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     judged = run_judge(client, results, args.fields, args.max_samples)
 
-    # Summary
     summary = compute_summary(judged, args.fields)
 
     print("\n── LLM-as-Judge Results ──────────────────────────────────")
@@ -258,7 +239,6 @@ def main():
         print()
     print("──────────────────────────────────────────────────────────")
 
-    # Save
     output = {
         "timestamp":    data["timestamp"],
         "judge_model":  MODEL,

@@ -1,0 +1,160 @@
+"""
+# search.py - POST /search (direct filtered search, no agent) and GET /products/{product_id}
+
+- /search uses HybridSearch when there is a text query, else GraphQueries filters only.
+- /products reuses the shared Neo4j driver (graph/queries.py get_driver).
+"""
+
+import logging
+import os
+
+from fastapi import APIRouter, HTTPException, Request
+
+from retailgraph.api.limiter import limiter
+from retailgraph.api.models import (
+    ProductDetail,
+    ProductResult,
+    SearchRequest,
+    SearchResponse,
+)
+
+router = APIRouter()
+log    = logging.getLogger("retailgraph.api.search")
+
+
+# Search products directly with filters, optionally ranked by a text query.
+@router.post("/search", response_model=SearchResponse, tags=["Search"])
+@limiter.limit("60/minute")
+def search_products(request: Request, body: SearchRequest):
+    """
+    Direct product search — bypasses the LangGraph agent for speed.
+
+    Use this when you have structured filters and don't need a natural
+    language answer. Combines Qdrant semantic search with Neo4j constraints.
+
+    **Examples:**
+    - Semantic only: `{"query": "spicy hot sauce"}`
+    - Filter only:   `{"category": "Beverages", "dietary_tags": ["vegan"], "max_price": 5}`
+    - Combined:      `{"query": "protein bar", "dietary_tags": ["gluten-free"], "max_price": 10}`
+    """
+    from retailgraph.graph.hybrid_search import HybridSearch
+    from retailgraph.graph.queries import GraphQueries
+
+    log.info(f"POST /search | query='{body.query}' filters={body.dietary_tags}")
+
+    kwargs = {k: getattr(body, k) for k in ("category", "dietary_tags", "brand", "exclude_allergens") if getattr(body, k)}
+    kwargs.update({k: getattr(body, k) for k in ("max_price", "min_price") if getattr(body, k) is not None})
+
+    try:
+        if body.query:
+            raw = HybridSearch().search(body.query, top_k=body.top_k, **kwargs)
+            search_type = "hybrid" if kwargs else "semantic"
+        else:
+            gq  = GraphQueries()
+            raw = gq.get_products(
+                tags              = body.dietary_tags or None,
+                category          = body.category,
+                max_price         = body.max_price,
+                min_price         = body.min_price,
+                exclude_allergens = body.exclude_allergens or None,
+                brand             = body.brand,
+                limit             = body.top_k,
+            )
+            gq.close()
+            search_type = "filter"
+
+    except Exception as e:
+        log.error(f"Search error: {e}")
+        raise HTTPException(status_code=500, detail="Search error — please try again.") from e
+
+    results = []
+    for r in raw:
+        try:
+            results.append(ProductResult(
+                item_name      = r.get("item_name") or r.get("p.item_name", ""),
+                price          = r.get("price") or r.get("p.price"),
+                brand          = r.get("brand"),
+                category       = r.get("category"),
+                quantity_value = r.get("quantity_value"),
+                quantity_unit  = r.get("quantity_unit"),
+                dietary_tags   = r.get("dietary_tags") or [],
+                allergen_list  = r.get("allergen_list") or [],
+                hybrid_score   = r.get("hybrid_score"),
+                image_url      = r.get("image_url"),
+            ))
+        except Exception:
+            continue
+
+    return SearchResponse(
+        result_count = len(results),
+        results      = results,
+        search_type  = search_type,
+    )
+
+
+# Fetch one product with its brand, category, tags, allergens and up to 5 same-category products.
+@router.get("/products/{product_id}", response_model=ProductDetail, tags=["Products"])
+def get_product(product_id: str):
+    """
+    Fetch a single product by ID with full graph context.
+
+    Returns the product's properties plus similar products
+    (other products in the same category).
+    """
+    from retailgraph.graph.queries import get_driver
+
+    log.info(f"GET /products/{product_id}")
+
+    driver = get_driver()
+    try:
+        with driver.session(database=os.getenv("NEO4J_DATABASE")) as session:
+            result = session.run("""
+                MATCH (p:Product {product_id: $pid})
+                OPTIONAL MATCH (p)-[:MADE_BY]->(b:Brand)
+                OPTIONAL MATCH (p)-[:BELONGS_TO]->(c:Category)
+                OPTIONAL MATCH (p)-[:HAS_TAG]->(t:DietaryTag)
+                OPTIONAL MATCH (p)-[:CONTAINS_ALLERGEN]->(a:Allergen)
+                RETURN p, b.name AS brand, c.name AS category,
+                       collect(DISTINCT t.name) AS tags,
+                       collect(DISTINCT a.name) AS allergens
+            """, pid=product_id)
+
+            record = result.single()
+            if not record:
+                raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+
+            p = record["p"]
+
+            sim_result = session.run("""
+                MATCH (p:Product {product_id: $pid})-[:BELONGS_TO]->(c:Category)
+                MATCH (other:Product)-[:BELONGS_TO]->(c)
+                WHERE other.product_id <> $pid
+                OPTIONAL MATCH (other)-[:MADE_BY]->(b:Brand)
+                RETURN other.item_name AS item_name,
+                       other.price     AS price,
+                       b.name          AS brand
+                LIMIT 5
+            """, pid=product_id)
+
+            similar = [dict(r) for r in sim_result]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Product lookup error: {e}")
+        raise HTTPException(status_code=500, detail="Product lookup error — please try again.") from e
+
+    return ProductDetail(
+        product_id     = product_id,
+        item_name      = p.get("item_name", ""),
+        price          = p.get("price"),
+        brand          = record["brand"],
+        category       = record["category"],
+        quantity_value = p.get("quantity_value"),
+        quantity_unit  = p.get("quantity_unit"),
+        dietary_tags   = record["tags"] or [],
+        allergen_list  = record["allergens"] or [],
+        quality_score  = p.get("quality_score"),
+        image_url      = p.get("image_url"),
+        similar_products = similar,
+    )

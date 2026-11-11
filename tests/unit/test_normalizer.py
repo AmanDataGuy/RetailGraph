@@ -1,13 +1,15 @@
-import pytest
-from src.extraction.normalizer import (
-    normalize_unit,
-    normalize_dietary_tags,
+"""
+# test_normalizer.py - unit tests for the unit, tag, allergen, brand and category normalizers
+"""
+from retailgraph.extraction.normalizer import (
+    clean_item_name,
+    extract_pack_size,
     normalize_allergens,
     normalize_brand,
     normalize_category,
-    extract_pack_size,
-    clean_item_name,
+    normalize_dietary_tags,
     normalize_product,
+    normalize_unit,
 )
 
 
@@ -338,7 +340,7 @@ class TestNormalizeProduct:
         assert result["allergen_list"] is None
 
     def test_full_pipeline_produces_valid_entity(self):
-        from src.extraction.schemas import ProductEntity
+        from retailgraph.extraction.schemas import ProductEntity
         raw = {
             "product_id": "999",
             "item_name": "  Organic Peanut Butter Pack of 6  ",
@@ -368,3 +370,9 @@ class TestNormalizeProduct:
         assert entity.unit_price == 6.0
         assert entity.is_organic is True
         assert entity.quality_score >= 70
+
+
+# The teacher prompt allows lowercase "l"; it must normalise to "L", not be dropped.
+def test_lowercase_litre_unit_kept():
+    from retailgraph.extraction.normalizer import normalize_unit
+    assert normalize_unit("l") == "L"

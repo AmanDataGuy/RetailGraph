@@ -1,12 +1,15 @@
-# Large raw data files
-data/raw/
-data/images/
+# Data and offline artifacts (the app reads none of it at runtime)
+data/
+extraction
+logs/
+mlruns*/
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 venv/
+venv-eval/
 .venv/
 *.egg-info/
 
@@ -22,6 +25,8 @@ extraction_results/
 
 # Dev files
 .env
+.claude/
+.deepeval/
 notebooks/
 *.tar
 *.log

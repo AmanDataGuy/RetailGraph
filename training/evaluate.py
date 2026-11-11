@@ -1,42 +1,20 @@
-# =============================================================================
-# RetailGraph — Model Evaluation
-# =============================================================================
-#
-# What this file does, in plain English:
-#   1. Loads the fine-tuned Qwen2-VL model from Modal Volume
-#   2. Runs it on every example in val.jsonl (678 examples)
-#   3. Compares the model's JSON output against the ground truth JSON
-#   4. Reports per-field accuracy for all schema fields
-#   5. Separately reports visual field accuracy (packaging_type, color, logo)
-#   6. Benchmarks latency (seconds per product)
-#   7. Saves full results to evaluation/eval_results.json
-#   8. Prints a clean summary table
-#
-# HOW TO RUN:
-#
-#   Quick sanity check (first 20 examples, ~5 mins):
-#     modal run training/evaluate.py --max-samples 20
-#
-#   Full evaluation (all 678 val examples, ~30 mins on A100):
-#     modal run training/evaluate.py
-#
-#   Download results after:
-#     modal volume get retailgraph-models eval_results ./evaluation/
-#
-# =============================================================================
+"""# evaluate.py - scores the fine-tuned Qwen2-VL on val.jsonl, per field, on a Modal A100
 
-import os
+- Input: Modal volumes retailgraph-models (/models/qwen2vl_retailgraph_v1) and retailgraph-data (/data/training/val.jsonl, images).
+- Output: /models/eval_results/eval_results.json (checkpointed every 50 examples) and a printed pass/fail report.
+- Run: modal run training/evaluate.py [--max-samples 20]
+  then: modal volume get retailgraph-models eval_results ./evaluation/
+"""
+
 import json
-import time
 import logging
-import argparse
-from pathlib import Path
+import time
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 import modal
 
-# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)s  %(message)s",
@@ -45,18 +23,9 @@ logging.basicConfig(
 log = logging.getLogger("retailgraph.evaluate")
 
 
-# =============================================================================
-# SECTION 1 — MODAL SETUP
-# Defines the remote container, packages, and Volume mounts.
-# Reuses the same base image as training so Modal can cache layers.
-# =============================================================================
-
 app = modal.App("retailgraph-evaluate")
 
-# Base layer — torch 2.4 + transformers pinned below 5.x.
-# torchvision 0.19 is required by qwen-vl-utils image processing utilities.
-# bitsandbytes is NOT included — we load in float16, not 4-bit, so we avoid
-# the bitsandbytes/transformers version conflicts entirely.
+# No bitsandbytes: the model loads in float16, which avoids bitsandbytes/transformers version clashes.
 base_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "wget", "curl")
@@ -66,8 +35,7 @@ base_image = (
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
     .pip_install(
-        # Pin transformers below 5.x — version 5+ broke Qwen2-VL rope_scaling
-        # and bitsandbytes compatibility in our testing.
+        # transformers 5.x broke Qwen2-VL rope_scaling in our testing.
         "transformers>=4.45.0,<5.0.0",
         "accelerate>=0.34.0",
     )
@@ -78,12 +46,10 @@ base_image = (
     )
 )
 
-# Modal Volumes — same ones used during training.
-# Model weights and val.jsonl are already inside these volumes.
+# Same volumes as training; paths must match what finetune_qwen.py wrote.
 data_volume  = modal.Volume.from_name("retailgraph-data",   create_if_missing=False)
 model_volume = modal.Volume.from_name("retailgraph-models", create_if_missing=False)
 
-# Paths inside the Modal container — must match what finetune_qwen.py wrote.
 REMOTE_DATA_DIR   = Path("/data")
 REMOTE_MODELS_DIR = Path("/models")
 REMOTE_MODEL_DIR  = REMOTE_MODELS_DIR / "qwen2vl_retailgraph_v1"
@@ -92,21 +58,12 @@ REMOTE_IMAGES_DIR = REMOTE_DATA_DIR   / "images"   / "train"
 REMOTE_EVAL_DIR   = REMOTE_MODELS_DIR / "eval_results"
 
 
-# =============================================================================
-# SECTION 2 — CONFIGURATION
-# Accuracy targets and field groupings — all thresholds in one place.
-# If a field falls below its target, we add more training pairs for that field.
-# =============================================================================
-
-# Accuracy targets.
 TEXT_FIELD_TARGET   = 0.90   # 90% — applies to all text fields
 VISUAL_FIELD_TARGET = 0.80   # 80% — applies to packaging_type, color, logo
 
-# Numeric tolerance — within 5% of ground truth = correct.
-# Example: truth=9.99, pred=10.20 → 2.1% off → CORRECT
-NUMERIC_TOLERANCE = 0.05
+NUMERIC_TOLERANCE = 0.05   # within 5% of the truth counts as correct
 
-# Field groupings — determines which scoring function each field uses.
+# Field groups pick the scoring function.
 EXACT_MATCH_FIELDS = ["category", "quantity_unit", "brand", "pack_size"]
 NUMERIC_FIELDS     = ["price", "quantity_value"]
 LIST_FIELDS        = ["dietary_tags", "allergen_list"]
@@ -115,19 +72,8 @@ VISUAL_FIELDS      = ["packaging_type", "packaging_color", "has_brand_logo"]
 ALL_FIELDS = EXACT_MATCH_FIELDS + NUMERIC_FIELDS + LIST_FIELDS + VISUAL_FIELDS
 
 
-# =============================================================================
-# SECTION 3 — SCORING FUNCTIONS
-# One function per field type. Returns 0.0 (wrong) to 1.0 (correct).
-# =============================================================================
-
+# Case-insensitive exact match; both None counts as correct, one None as wrong.
 def score_exact(pred, truth) -> float:
-    """
-    Case-insensitive exact match.
-
-    Both None = 1.0  (both correctly absent)
-    One None  = 0.0  (one present, one absent = mismatch)
-    String    = 1.0 if equal after strip+lower, else 0.0
-    """
     if truth is None and pred is None:
         return 1.0
     if truth is None or pred is None:
@@ -137,14 +83,8 @@ def score_exact(pred, truth) -> float:
     return 1.0 if pred == truth else 0.0
 
 
+# 1.0 if pred is within `tolerance` (relative) of truth, else 0.0.
 def score_numeric(pred, truth, tolerance: float = NUMERIC_TOLERANCE) -> float:
-    """
-    Numeric match within tolerance %.
-
-    truth=5.99, pred=6.20 → 3.5% off → 1.0 (within 5%)
-    truth=5.99, pred=7.00 → 16.9% off → 0.0 (exceeds 5%)
-    truth=0,    pred=0    → 1.0 (special case: both zero)
-    """
     if truth is None and pred is None:
         return 1.0
     if truth is None or pred is None:
@@ -159,14 +99,8 @@ def score_numeric(pred, truth, tolerance: float = NUMERIC_TOLERANCE) -> float:
     return 1.0 if abs(pred_f - truth_f) / abs(truth_f) <= tolerance else 0.0
 
 
+# Jaccard similarity of two lists (case-insensitive); two empty lists score 1.0.
 def score_list(pred, truth) -> float:
-    """
-    Jaccard similarity for list fields (dietary_tags, allergen_list).
-
-    ["organic", "gluten-free"] vs ["organic"]    → 0.5  (1 match / 2 union)
-    ["organic", "vegan"]       vs ["organic","vegan"] → 1.0
-    [] vs []                                     → 1.0  (both correctly empty)
-    """
     truth_set = set(str(t).strip().lower() for t in (truth or []))
     pred_set  = set(str(p).strip().lower() for p in (pred  or []))
     if not truth_set and not pred_set:
@@ -176,8 +110,8 @@ def score_list(pred, truth) -> float:
     return len(intersection) / len(union) if union else 1.0
 
 
+# Route a field to its scoring function.
 def score_field(field_name: str, pred_value, truth_value) -> float:
-    """Routes each field to the correct scoring function."""
     if field_name in EXACT_MATCH_FIELDS or field_name in VISUAL_FIELDS:
         return score_exact(pred_value, truth_value)
     elif field_name in NUMERIC_FIELDS:
@@ -188,52 +122,18 @@ def score_field(field_name: str, pred_value, truth_value) -> float:
         return score_exact(pred_value, truth_value)
 
 
-# =============================================================================
-# SECTION 4 — ROPE SCALING PATCH
-# =============================================================================
-# WHY THIS EXISTS:
-#   Qwen2-VL uses MRoPE (Multimodal Rotary Position Embedding). Every attention
-#   layer stores a reference to rope_scaling and reads mrope_section from it
-#   during each forward pass:
-#
-#       self.rope_scaling["mrope_section"]   ← crashes if rope_scaling is None
-#
-#   When Unsloth merges the LoRA adapter and saves the model, rope_scaling
-#   is sometimes stripped from both the config AND from each attention layer's
-#   own attribute. Patching only model.config is not enough — the crash happens
-#   inside self_attn.forward(), which reads self.rope_scaling directly.
-#
-#   THE FIX:
-#     1. Patch model.config.rope_scaling
-#     2. Walk every module in the model and patch any that have a rope_scaling
-#        attribute set to None or missing mrope_section
-#
-#   The values [16, 24, 24] are the exact standard Qwen2-VL 7B defaults from
-#   the original Qwen/Qwen2-VL-7B-Instruct config on HuggingFace.
-# =============================================================================
-
-# Standard Qwen2-VL 7B MRoPE config — [text_dims, height_dims, width_dims].
+# Unsloth's merged save sometimes drops rope_scaling from the config AND from each attention layer,
+# and Qwen2-VL attention reads self.rope_scaling["mrope_section"] in forward(). Defaults from Qwen2-VL-7B-Instruct.
 QWEN2VL_ROPE_SCALING = {
     "type": "mrope",
     "mrope_section": [16, 24, 24],
 }
 
 
+# Restore the MRoPE rope_scaling on model.config and on every layer that lost it.
 def patch_rope_scaling(model) -> None:
-    """
-    Patches rope_scaling on model.config AND on every attention layer.
-
-    Why both?
-      - model.config.rope_scaling controls model construction
-      - Each Qwen2VLAttention layer has its OWN self.rope_scaling attribute
-        that it reads directly during forward(). Patching only the config
-        does not update the already-constructed attention layers.
-
-    Called immediately after from_pretrained, before any inference.
-    """
     patched_layers = 0
 
-    # Step 1 — patch model.config
     cfg = model.config
     config_needs_patch = (
         cfg.rope_scaling is None
@@ -246,9 +146,7 @@ def patch_rope_scaling(model) -> None:
     else:
         log.info("model.config.rope_scaling is intact.")
 
-    # Step 2 — patch every attention layer that has a broken rope_scaling
-    # model.named_modules() walks the entire model tree recursively.
-    for name, module in model.named_modules():
+    for _name, module in model.named_modules():
         if hasattr(module, "rope_scaling"):
             rs = module.rope_scaling
             needs_patch = (
@@ -269,23 +167,8 @@ def patch_rope_scaling(model) -> None:
         log.info("All attention layers already have intact rope_scaling.")
 
 
-# =============================================================================
-# SECTION 5 — MODEL LOADING
-# =============================================================================
-
+# Load the merged model in float16 (fits easily on an A100, no bitsandbytes); returns (model, processor, device).
 def load_model(model_dir: str):
-    """
-    Loads the fine-tuned Qwen2-VL model in float16 on GPU.
-
-    Why float16 instead of 4-bit?
-      - A100 80GB has 80GB VRAM. Qwen2-VL 7B in float16 needs ~14GB.
-        Plenty of headroom — no need to quantize.
-      - Avoids bitsandbytes import which conflicts with transformers 4.57.x
-        in the Modal container environment.
-
-    Returns:
-        (model, processor, device)
-    """
     import torch
     from transformers import Qwen2VLForConditionalGeneration, Qwen2VLProcessor
 
@@ -293,16 +176,12 @@ def load_model(model_dir: str):
 
     model = Qwen2VLForConditionalGeneration.from_pretrained(
         model_dir,
-        torch_dtype=torch.float16,      # 'dtype' replaces deprecated 'torch_dtype'
-        device_map="auto",        # automatically places layers across available GPUs
-        trust_remote_code=True,   # required for Qwen2-VL custom modeling code
+        torch_dtype=torch.float16,
+        device_map="auto",
+        trust_remote_code=True,
     )
 
-    # CRITICAL: patch rope_scaling immediately after load.
-    # If this is skipped, inference will crash with NoneType error.
-    patch_rope_scaling(model)
-
-    # Set model to eval mode — disables dropout, ensures deterministic output.
+    patch_rope_scaling(model)   # must run before any inference, or forward() crashes on None
     model.eval()
 
     processor = Qwen2VLProcessor.from_pretrained(
@@ -316,41 +195,12 @@ def load_model(model_dir: str):
     return model, processor, device
 
 
-# =============================================================================
-# SECTION 6 — INFERENCE
-# Runs the model on one val example and returns the parsed JSON output.
-# =============================================================================
-
+# Generate a prediction for one val example; returns the parsed JSON, or {} if it is not valid JSON.
 def run_inference(model, processor, device, messages: list, pil_image=None) -> dict:
-    """
-    Runs the fine-tuned model on a single val example.
-
-    Args:
-        model:      loaded Qwen2-VL model
-        processor:  Qwen2VLProcessor (tokenizer + image processor)
-        device:     "cuda" or "cpu"
-        messages:   list of {role, content} from val.jsonl
-                    Includes system, user, assistant — we exclude the assistant
-                    message since that is what we are predicting.
-        pil_image:  PIL.Image for visual pairs, None for text-only pairs
-
-    Returns:
-        dict: parsed JSON prediction, or {} if model output was not valid JSON
-    """
     import torch
 
-    # Build the prompt using only system + last user message.
-    #
-    # WHY NOT messages[:-1]?
-    #   Each val.jsonl entry contains few-shot examples (multiple user/assistant
-    #   turns) followed by the real product turn at the end. Passing all turns
-    #   to the model works but massively inflates the prompt (~3x tokens) and
-    #   causes the model to sometimes copy from the few-shot examples instead
-    #   of extracting the real product.
-    #
-    #   The correct approach: extract the system message + the last user message
-    #   only. The model was trained on this exact format and needs no few-shot
-    #   examples at inference time — that's the whole point of fine-tuning.
+    # Prompt = system + last user turn only; dropping the few-shot turns keeps the prompt ~3x smaller
+    # and stops the model copying from the examples.
     system_msg  = next((m for m in messages if m["role"] == "system"), None)
     last_user   = next((m for m in reversed(messages) if m["role"] == "user"), None)
 
@@ -362,7 +212,6 @@ def run_inference(model, processor, device, messages: list, pil_image=None) -> d
         formatted.append({"role": "system", "content": system_msg["content"]})
 
     if pil_image is not None:
-        # Visual pair: inject image into the user turn.
         formatted.append({
             "role": "user",
             "content": [
@@ -373,14 +222,12 @@ def run_inference(model, processor, device, messages: list, pil_image=None) -> d
     else:
         formatted.append({"role": "user", "content": last_user["content"]})
 
-    # Apply the Qwen2-VL chat template to produce the final prompt string.
     text = processor.apply_chat_template(
         formatted,
         tokenize=False,
         add_generation_prompt=True,
     )
 
-    # Tokenize — with or without image depending on pair type.
     if pil_image is not None:
         inputs = processor(
             text=[text],
@@ -395,29 +242,23 @@ def run_inference(model, processor, device, messages: list, pil_image=None) -> d
             padding=True,
         )
 
-    # Move all tensors to GPU.
     inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    # Generate response.
-    # do_sample=False = greedy decoding → deterministic, reproducible output.
-    # temperature=1.0 is ignored when do_sample=False but required to avoid
-    # a UserWarning from transformers about conflicting generation config.
+    # Greedy decoding; temperature=1.0 only silences a transformers generation-config warning.
     with torch.no_grad():
         output_ids = model.generate(
             **inputs,
             max_new_tokens=512,
-                        do_sample=False,
+            do_sample=False,
             temperature=1.0,
             pad_token_id=processor.tokenizer.pad_token_id,
         )
 
-    # Decode only the newly generated tokens — not the input prompt.
     input_length = inputs["input_ids"].shape[1]
     new_tokens   = output_ids[0][input_length:]
     response     = processor.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
-    # Parse the JSON response.
-    # Strip markdown code fences if the model wrapped its output in ```json ... ```.
+    # Strip ```json fences if the model added them.
     try:
         if "```" in response:
             response = response.split("```")[1]
@@ -429,10 +270,7 @@ def run_inference(model, processor, device, messages: list, pil_image=None) -> d
         return {}
 
 
-# =============================================================================
-# SECTION 7 — MAIN EVALUATION FUNCTION (runs on Modal A100)
-# =============================================================================
-
+# Run the model over val.jsonl (or the first max_samples), score every field, save and return the report.
 @app.function(
     gpu="A100-80GB",
     image=base_image,
@@ -440,29 +278,13 @@ def run_inference(model, processor, device, messages: list, pil_image=None) -> d
         str(REMOTE_DATA_DIR):   data_volume,
         str(REMOTE_MODELS_DIR): model_volume,
     },
-    timeout=7200,   # 2 hours max — full 678 examples takes ~30 mins on A100
+    timeout=7200,
 )
 def run_evaluation(max_samples: int = None):
-    """
-    Full evaluation pipeline — runs on the Modal A100 GPU.
-
-    Steps:
-        1. Load model from Modal Volume (float16, auto device_map)
-        2. Patch rope_scaling if missing (Unsloth save/load issue)
-        3. Load val.jsonl from Modal Volume
-        4. For each example: run inference, score all fields
-        5. Save checkpoint every 50 examples
-        6. Print + return the final accuracy report
-
-    Args:
-        max_samples: limit to N examples for quick test. None = all 678.
-    """
     from PIL import Image
 
-    # Load model — rope_scaling patch is applied inside load_model().
     model, processor, device = load_model(str(REMOTE_MODEL_DIR))
 
-    # Load val examples.
     log.info(f"Loading val examples from {REMOTE_VAL_JSONL}...")
     with open(REMOTE_VAL_JSONL, encoding="utf-8") as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -473,10 +295,8 @@ def run_evaluation(max_samples: int = None):
 
     log.info(f"Evaluating {len(lines)} examples...")
 
-    # Create output directory inside the volume.
     REMOTE_EVAL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Tracking variables.
     results      = []
     field_scores = defaultdict(list)
     latencies    = []
@@ -484,10 +304,7 @@ def run_evaluation(max_samples: int = None):
     visual_count = 0
     parse_errors = 0
 
-    # ── Evaluation loop ───────────────────────────────────────────────────────
     for i, line in enumerate(lines):
-
-        # Parse the JSONL line.
         try:
             pair = json.loads(line)
         except json.JSONDecodeError:
@@ -497,10 +314,7 @@ def run_evaluation(max_samples: int = None):
         messages   = pair.get("messages", [])
         image_path = pair.get("image_path")
 
-        # Extract ground truth from the LAST assistant message.
-        # Each pair has few-shot examples (user/assistant turns) followed by
-        # the real product turn. next() would grab the first few-shot assistant
-        # message (always the same example product). We want the last one.
+        # Ground truth is the LAST assistant turn; earlier ones are few-shot examples.
         assistant_msg = next(
             (m for m in reversed(messages) if m["role"] == "assistant"), None
         )
@@ -513,8 +327,7 @@ def run_evaluation(max_samples: int = None):
             log.warning(f"Could not parse ground truth at line {i+1}")
             continue
 
-        # Load image for visual pairs.
-        # image_path uses Windows backslashes from generation — normalise here.
+        # image_path was written on Windows, so normalise backslashes.
         pil_image = None
         if image_path:
             fname     = Path(image_path.replace("\\", "/")).name
@@ -532,7 +345,6 @@ def run_evaluation(max_samples: int = None):
         else:
             text_count += 1
 
-        # Run inference and measure latency.
         t0         = time.time()
         prediction = run_inference(model, processor, device, messages, pil_image)
         latency    = time.time() - t0
@@ -541,7 +353,6 @@ def run_evaluation(max_samples: int = None):
         if not prediction:
             parse_errors += 1
 
-        # Score every field.
         example_scores = {}
         for field in ALL_FIELDS:
             pred_val  = prediction.get(field)
@@ -565,7 +376,6 @@ def run_evaluation(max_samples: int = None):
             "ground_truth":  ground_truth,
         })
 
-        # Progress log every 10 examples.
         if (i + 1) % 10 == 0 or (i + 1) == len(lines):
             recent_lat = latencies[-min(10, len(latencies)):]
             avg_lat    = sum(recent_lat) / len(recent_lat)
@@ -576,19 +386,17 @@ def run_evaluation(max_samples: int = None):
                 f"avg_last10={avg_lat:.1f}s"
             )
 
-        # Checkpoint every 50 examples — nothing lost if the run crashes.
+        # Checkpoint so a crash loses at most 50 examples.
         if (i + 1) % 50 == 0:
             _save_results(results, field_scores, latencies,
                           text_count, visual_count, parse_errors)
             model_volume.commit()
             log.info(f"Checkpoint saved at {i+1} examples.")
 
-    # Final save.
     _save_results(results, field_scores, latencies,
                   text_count, visual_count, parse_errors)
     model_volume.commit()
 
-    # Build, print, and return the report.
     report = _build_report(
         field_scores, latencies, text_count, visual_count,
         parse_errors, len(results)
@@ -597,15 +405,11 @@ def run_evaluation(max_samples: int = None):
     return report
 
 
-# =============================================================================
-# SECTION 8 — RESULT SAVING AND REPORT GENERATION
-# =============================================================================
-
+# Write the partial or final results JSON to the model volume.
 def _save_results(
     results, field_scores, latencies,
     text_count, visual_count, parse_errors
 ) -> None:
-    """Saves partial or final results to the Modal Volume as JSON."""
     summary = {
         "timestamp":    datetime.now().isoformat(),
         "total":        len(results),
@@ -624,11 +428,11 @@ def _save_results(
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
 
+# Format the per-field pass/fail report for the terminal.
 def _build_report(
     field_scores, latencies, text_count, visual_count,
     parse_errors, total
 ) -> str:
-    """Formats a clean accuracy report string for terminal output."""
     lines = []
     sep   = "=" * 65
 
@@ -664,7 +468,7 @@ def _build_report(
         accuracy = sum(scores) / len(scores) if scores else 0.0
         passed   = accuracy >= VISUAL_FIELD_TARGET
         status   = "✅ PASS" if passed else "❌ FAIL"
-        # Only count as failure if there were actually visual examples evaluated
+        # Visual fields only fail the run if visual examples were actually scored.
         if not passed and visual_count > 0:
             all_passed = False
         lines.append(f"  {field:<25} {accuracy*100:5.1f}%   {status}")
@@ -690,26 +494,9 @@ def _build_report(
     return "\n".join(lines)
 
 
-# =============================================================================
-# SECTION 9 — LOCAL ENTRYPOINT
-# Runs on your laptop and triggers the evaluation on Modal A100.
-# =============================================================================
-
+# Local entrypoint: start run_evaluation on Modal and print its report (0 = all examples).
 @app.local_entrypoint()
 def main(max_samples: int = 0):
-    """
-    Triggers evaluation on Modal A100 from your laptop.
-
-    Usage:
-        # Quick sanity check — 20 examples, ~5 mins, ~$0.15:
-        modal run training/evaluate.py --max-samples 20
-
-        # Full evaluation — 678 examples, ~30 mins, ~$2:
-        modal run training/evaluate.py
-
-        # Download results after either run:
-        modal volume get retailgraph-models eval_results ./evaluation/
-    """
     samples = max_samples if max_samples > 0 else None
 
     if samples:
@@ -726,15 +513,3 @@ def main(max_samples: int = 0):
     log.info("Evaluation complete.")
     log.info("Download results:")
     log.info("  modal volume get retailgraph-models eval_results ./evaluation/")
-
-
-
-
-
-
-
-
-
-
-
-

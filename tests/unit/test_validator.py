@@ -1,19 +1,13 @@
-import csv
+"""
+# test_validator.py - unit tests for validator.validate_extraction and its error formatting
+"""
 import json
-import pytest
-from pathlib import Path
-from unittest.mock import patch
 
-from src.extraction.validator import (
-    ValidationResult,
-    validate_extraction,
-    validate_with_retry,
-    _log_failure,
-    _format_pydantic_errors,
-    _format_error_for_retry,
-    FAILED_CSV,
-    MAX_RETRIES,
+from retailgraph.extraction.validator import (
     MIN_CONFIDENCE,
+    ValidationResult,
+    _format_error_for_retry,
+    validate_extraction,
 )
 
 
@@ -37,7 +31,7 @@ def make_valid_json(overrides: dict = {}) -> str:
 class TestValidationResult:
 
     def test_success_repr(self):
-        from src.extraction.schemas import ProductEntity
+        from retailgraph.extraction.schemas import ProductEntity
         entity = ProductEntity(product_id="1", item_name="Test", price=9.99)
         result = ValidationResult(success=True, entity=entity)
         assert "success=True" in repr(result)
@@ -217,111 +211,3 @@ class TestSuccessfulValidation:
         assert result.success is True
         assert "gluten-free" in result.entity.dietary_tags
         assert "non-GMO" in result.entity.dietary_tags
-
-
-# ── Failure Logging Tests ─────────────────────────────────────────────────────
-class TestFailureLogging:
-
-    def test_failure_logged_to_csv(self, tmp_path):
-        test_csv = tmp_path / "failed.csv"
-        with patch("src.extraction.validator.FAILED_CSV", test_csv):
-            _log_failure("123", 3, "pydantic", "bad category")
-            assert test_csv.exists()
-            rows = list(csv.DictReader(open(test_csv, encoding="utf-8")))
-            assert len(rows) == 1
-            assert rows[0]["product_id"] == "123"
-            assert rows[0]["step"] == "pydantic"
-
-    def test_csv_header_written_once(self, tmp_path):
-        test_csv = tmp_path / "failed.csv"
-        with patch("src.extraction.validator.FAILED_CSV", test_csv):
-            _log_failure("1", 1, "json_parse", "error1")
-            _log_failure("2", 2, "pydantic", "error2")
-            lines = open(test_csv, encoding="utf-8").readlines()
-            assert len(lines) == 3
-
-    def test_long_error_truncated(self, tmp_path):
-        test_csv = tmp_path / "failed.csv"
-        long_error = "x" * 1000
-        with patch("src.extraction.validator.FAILED_CSV", test_csv):
-            _log_failure("123", 1, "pydantic", long_error)
-            rows = list(csv.DictReader(open(test_csv, encoding="utf-8")))
-            assert len(rows[0]["error"]) <= 500
-
-    def test_timestamp_present(self, tmp_path):
-        test_csv = tmp_path / "failed.csv"
-        with patch("src.extraction.validator.FAILED_CSV", test_csv):
-            _log_failure("123", 1, "pydantic", "error")
-            rows = list(csv.DictReader(open(test_csv, encoding="utf-8")))
-            assert rows[0]["timestamp"] != ""
-
-
-# ── Retry Logic Tests ─────────────────────────────────────────────────────────
-class TestRetryLogic:
-
-    def test_success_on_first_attempt_no_retry(self):
-        call_count = {"n": 0}
-
-        def callback(pid, error, attempt):
-            call_count["n"] += 1
-            return make_valid_json()
-
-        result = validate_with_retry(make_valid_json(), "123", callback)
-        assert result.success is True
-        assert call_count["n"] == 0
-
-    def test_retry_called_on_failure(self):
-        call_count = {"n": 0}
-
-        def callback(pid, error, attempt):
-            call_count["n"] += 1
-            return make_valid_json()  # return valid on retry
-
-        bad_json = make_valid_json({"price": -1.0})
-        result = validate_with_retry(bad_json, "123", callback)
-        assert result.success is True
-        assert call_count["n"] == 1
-
-    def test_max_retries_respected(self, tmp_path):
-        with patch("src.extraction.validator.FAILED_CSV", tmp_path / "failed.csv"):
-            call_count = {"n": 0}
-
-            def callback(pid, error, attempt):
-                call_count["n"] += 1
-                return make_valid_json({"price": -1.0})  # always invalid
-
-            bad_json = make_valid_json({"price": -1.0})
-            result = validate_with_retry(bad_json, "123", callback)
-            assert result.success is False
-            assert call_count["n"] == MAX_RETRIES - 1
-
-    def test_failure_logged_after_max_retries(self, tmp_path):
-        test_csv = tmp_path / "failed.csv"
-        with patch("src.extraction.validator.FAILED_CSV", test_csv):
-
-            def callback(pid, error, attempt):
-                return make_valid_json({"price": -1.0})
-
-            bad_json = make_valid_json({"price": -1.0})
-            validate_with_retry(bad_json, "123", callback)
-            assert test_csv.exists()
-
-    def test_no_callback_fails_immediately(self, tmp_path):
-        with patch("src.extraction.validator.FAILED_CSV", tmp_path / "failed.csv"):
-            bad_json = make_valid_json({"price": -1.0})
-            result = validate_with_retry(bad_json, "123", retry_callback=None)
-            assert result.success is False
-
-    def test_success_on_second_attempt(self, tmp_path):
-        with patch("src.extraction.validator.FAILED_CSV", tmp_path / "failed.csv"):
-            attempts = {"n": 0}
-
-            def callback(pid, error, attempt):
-                attempts["n"] += 1
-                if attempts["n"] == 1:
-                    return make_valid_json({"price": -1.0})  # still bad
-                return make_valid_json()  # good on second retry
-
-            bad_json = make_valid_json({"price": -1.0})
-            result = validate_with_retry(bad_json, "123", callback)
-            assert result.success is True

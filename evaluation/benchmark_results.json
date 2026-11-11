@@ -1,0 +1,394 @@
+{
+  "totals": {
+    "vector": 24,
+    "graph": 29,
+    "graphrag": 25
+  },
+  "latencies": {
+    "vector": 0.62,
+    "graph": 1.76,
+    "graphrag": 0.91
+  },
+  "type_scores": {
+    "multi_constraint": {
+      "vector": 6,
+      "graph": 7,
+      "graphrag": 7,
+      "total": 7
+    },
+    "semantic": {
+      "vector": 7,
+      "graph": 7,
+      "graphrag": 7,
+      "total": 7
+    },
+    "analytics": {
+      "vector": 4,
+      "graph": 6,
+      "graphrag": 4,
+      "total": 6
+    },
+    "compound": {
+      "vector": 1,
+      "graph": 1,
+      "graphrag": 1,
+      "total": 2
+    },
+    "negation": {
+      "vector": 2,
+      "graph": 2,
+      "graphrag": 2,
+      "total": 2
+    },
+    "price_range": {
+      "vector": 2,
+      "graph": 2,
+      "graphrag": 2,
+      "total": 2
+    },
+    "subtle_semantic": {
+      "vector": 2,
+      "graph": 2,
+      "graphrag": 2,
+      "total": 2
+    },
+    "multi_hop": {
+      "vector": 0,
+      "graph": 2,
+      "graphrag": 0,
+      "total": 2
+    }
+  },
+  "rows": [
+    {
+      "id": 1,
+      "type": "multi_constraint",
+      "query": "vegan snacks under $5",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.798,
+      "lat_gph": 1.189,
+      "lat_rag": 2.739
+    },
+    {
+      "id": 2,
+      "type": "multi_constraint",
+      "query": "gluten-free beverages under $3",
+      "vector": false,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.739,
+      "lat_gph": 1.467,
+      "lat_rag": 0.832
+    },
+    {
+      "id": 3,
+      "type": "multi_constraint",
+      "query": "kosher organic coffee under $20",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.651,
+      "lat_gph": 1.407,
+      "lat_rag": 0.752
+    },
+    {
+      "id": 4,
+      "type": "multi_constraint",
+      "query": "dairy-free keto snacks under $8",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.618,
+      "lat_gph": 1.319,
+      "lat_rag": 0.668
+    },
+    {
+      "id": 5,
+      "type": "multi_constraint",
+      "query": "non-GMO vegan condiments under $15",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.605,
+      "lat_gph": 1.383,
+      "lat_rag": 1.267
+    },
+    {
+      "id": 6,
+      "type": "multi_constraint",
+      "query": "high-protein gluten-free products under $5",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.53,
+      "lat_gph": 1.392,
+      "lat_rag": 0.697
+    },
+    {
+      "id": 7,
+      "type": "multi_constraint",
+      "query": "organic coffee under $10",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.534,
+      "lat_gph": 1.311,
+      "lat_rag": 0.673
+    },
+    {
+      "id": 8,
+      "type": "semantic",
+      "query": "something similar to sriracha",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.615,
+      "lat_gph": 1.333,
+      "lat_rag": 0.662
+    },
+    {
+      "id": 9,
+      "type": "semantic",
+      "query": "matcha or green tea drinks",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.576,
+      "lat_gph": 2.953,
+      "lat_rag": 1.729
+    },
+    {
+      "id": 10,
+      "type": "semantic",
+      "query": "healthy breakfast options",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.526,
+      "lat_gph": 2.909,
+      "lat_rag": 0.756
+    },
+    {
+      "id": 11,
+      "type": "semantic",
+      "query": "spicy cooking sauces",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.559,
+      "lat_gph": 6.146,
+      "lat_rag": 1.755
+    },
+    {
+      "id": 12,
+      "type": "semantic",
+      "query": "low sugar snack options",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.619,
+      "lat_gph": 3.609,
+      "lat_rag": 0.94
+    },
+    {
+      "id": 13,
+      "type": "semantic",
+      "query": "protein bar alternatives",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.721,
+      "lat_gph": 3.231,
+      "lat_rag": 0.845
+    },
+    {
+      "id": 14,
+      "type": "semantic",
+      "query": "pasta sauce or marinara",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.534,
+      "lat_gph": 1.229,
+      "lat_rag": 0.79
+    },
+    {
+      "id": 15,
+      "type": "analytics",
+      "query": "which category has the most products",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.594,
+      "lat_gph": 1.346,
+      "lat_rag": 0.605
+    },
+    {
+      "id": 16,
+      "type": "analytics",
+      "query": "top 5 brands by product count",
+      "vector": false,
+      "graph": true,
+      "graphrag": false,
+      "lat_vec": 0.537,
+      "lat_gph": 1.363,
+      "lat_rag": 0.675
+    },
+    {
+      "id": 17,
+      "type": "analytics",
+      "query": "most common dietary tag",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.622,
+      "lat_gph": 1.498,
+      "lat_rag": 0.774
+    },
+    {
+      "id": 18,
+      "type": "analytics",
+      "query": "average price in beverages category",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.69,
+      "lat_gph": 1.269,
+      "lat_rag": 0.947
+    },
+    {
+      "id": 19,
+      "type": "analytics",
+      "query": "how many vegan products are there",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.717,
+      "lat_gph": 1.43,
+      "lat_rag": 1.095
+    },
+    {
+      "id": 20,
+      "type": "analytics",
+      "query": "which category has the highest average price",
+      "vector": false,
+      "graph": true,
+      "graphrag": false,
+      "lat_vec": 0.62,
+      "lat_gph": 1.39,
+      "lat_rag": 0.673
+    },
+    {
+      "id": 21,
+      "type": "compound",
+      "query": "organic gluten-free coffee between $10 and $25",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.836,
+      "lat_gph": 1.462,
+      "lat_rag": 0.807
+    },
+    {
+      "id": 22,
+      "type": "compound",
+      "query": "dairy-free soy-free supplements over $20",
+      "vector": false,
+      "graph": false,
+      "graphrag": false,
+      "lat_vec": 0.579,
+      "lat_gph": 1.426,
+      "lat_rag": 0.158
+    },
+    {
+      "id": 23,
+      "type": "negation",
+      "query": "kosher snacks under $5 that are not vegan",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.571,
+      "lat_gph": 1.369,
+      "lat_rag": 0.753
+    },
+    {
+      "id": 24,
+      "type": "negation",
+      "query": "gluten-free snacks that are not sugar-free",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.562,
+      "lat_gph": 1.355,
+      "lat_rag": 0.833
+    },
+    {
+      "id": 25,
+      "type": "price_range",
+      "query": "beverages between $15 and $30",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.611,
+      "lat_gph": 1.352,
+      "lat_rag": 0.81
+    },
+    {
+      "id": 26,
+      "type": "price_range",
+      "query": "spices and seasonings over $10",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.56,
+      "lat_gph": 1.383,
+      "lat_rag": 0.834
+    },
+    {
+      "id": 27,
+      "type": "subtle_semantic",
+      "query": "something to spice up a bland dinner",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.607,
+      "lat_gph": 1.32,
+      "lat_rag": 0.806
+    },
+    {
+      "id": 28,
+      "type": "subtle_semantic",
+      "query": "a warm drink for a cold morning",
+      "vector": true,
+      "graph": true,
+      "graphrag": true,
+      "lat_vec": 0.635,
+      "lat_gph": 1.204,
+      "lat_rag": 0.772
+    },
+    {
+      "id": 29,
+      "type": "multi_hop",
+      "query": "brands that sell products in both Coffee & Tea and Snacks & Candy",
+      "vector": false,
+      "graph": true,
+      "graphrag": false,
+      "lat_vec": 0.553,
+      "lat_gph": 1.451,
+      "lat_rag": 0.855
+    },
+    {
+      "id": 30,
+      "type": "multi_hop",
+      "query": "vegan brands that also make gluten-free products",
+      "vector": false,
+      "graph": true,
+      "graphrag": false,
+      "lat_vec": 0.591,
+      "lat_gph": 1.237,
+      "lat_rag": 0.857
+    }
+  ]
+}

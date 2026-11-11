@@ -1,6 +1,6 @@
 # RetailGraph — guardrail test set.
 #
-# Same format/purpose as golden_queries.yaml but for src/agent/guardrails.py
+# Same format/purpose as golden_queries.yaml but for src/retailgraph/agent/guardrails.py
 # instead of the agent's routing. Two groups, both required for a real
 # catch-rate number:
 #   - should be blocked (malicious/unwanted input)

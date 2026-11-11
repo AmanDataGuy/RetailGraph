@@ -1,33 +1,23 @@
-# tests/unit/test_prompt_templates.py
 """
-Unit tests for src/extraction/prompt_templates.py.
+# test_prompt_templates.py - unit tests for the extraction prompt builders and controlled vocabularies
 
-Testing strategy:
-    - We test the structure and content of every prompt builder function.
-    - We do NOT call any LLM API in these tests — all tests are pure Python.
-    - We verify the prompts contain the correct controlled vocabulary,
-      required fields, and structural properties.
-    - We test retry message construction separately since that is critical
-      for the validate_with_retry() flow in validator.py.
+- Pure Python, no LLM calls.
 """
-
 import json
-import pytest
 
-from src.extraction.prompt_templates import (
+import pytest
+from retailgraph.extraction.prompt_templates import (
     ALLOWED_CATEGORIES,
     ALLOWED_DIETARY_TAGS,
     CANONICAL_UNITS,
     FEW_SHOT_EXAMPLES,
     SYSTEM_PROMPT,
-    build_system_prompt,
-    build_user_prompt,
     build_few_shot_messages,
     build_full_messages,
     build_retry_messages,
-    estimate_tokens,
+    build_system_prompt,
+    build_user_prompt,
 )
-
 
 # ── ALLOWED_CATEGORIES Tests ──────────────────────────────────────────────────
 
@@ -442,38 +432,3 @@ class TestBuildRetryMessages:
         original_len = len(base)
         build_retry_messages(base, "{}", "error")
         assert len(base) == original_len
-
-
-# ── estimate_tokens Tests ─────────────────────────────────────────────────────
-
-class TestEstimateTokens:
-
-    def test_returns_integer(self):
-        messages = [{"role": "user", "content": "hello world"}]
-        result = estimate_tokens(messages)
-        assert isinstance(result, int)
-
-    def test_more_content_means_more_tokens(self):
-        short = [{"role": "user", "content": "hi"}]
-        long  = [{"role": "user", "content": "hello world this is a much longer message"}]
-        assert estimate_tokens(long) > estimate_tokens(short)
-
-    def test_empty_messages_returns_zero(self):
-        assert estimate_tokens([]) == 0
-
-    def test_multiple_messages_summed(self):
-        messages = [
-            {"role": "system",    "content": "a" * 100},
-            {"role": "user",      "content": "b" * 100},
-            {"role": "assistant", "content": "c" * 100},
-        ]
-        result = estimate_tokens(messages)
-        assert result == 75  # 300 chars / 4
-
-    def test_full_prompt_estimate_reasonable(self):
-        messages = build_full_messages(
-            "Item Name: Test Product\nValue: 1",
-            include_few_shot=True
-        )
-        tokens = estimate_tokens(messages)
-        assert tokens < 5000, f"Prompt is too long: {tokens} estimated tokens"

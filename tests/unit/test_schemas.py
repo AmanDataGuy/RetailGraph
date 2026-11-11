@@ -1,10 +1,11 @@
+"""
+# test_schemas.py - unit tests for the ProductEntity / VisualAttributes Pydantic schema
+"""
 import pytest
-from src.extraction.schemas import (
+from retailgraph.extraction.schemas import (
     ContentTier,
-    ImageQuality,
     PackagingType,
     ProductEntity,
-    VisualAttributes,
 )
 
 

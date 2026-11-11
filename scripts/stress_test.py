@@ -1,22 +1,9 @@
 """
-scripts/stress_test.py
+# stress_test.py - concurrent load test against a running RetailGraph API over HTTP
 
-Concurrent load test against the live RetailGraph API (not run_query() in
-isolation — the actual HTTP surface, so it exercises the rate limiter,
-uvicorn's request handling, and the real Neo4j/Qdrant/Groq connections
-under contention).
-
-Covers what CHANGES_REPORT.md's own "what's left" list flagged as never
-re-tested after the bug fixes in this session:
-  - Concurrent /v1/query load (the new count-query adds a 2nd Neo4j
-    round-trip per Cypher-path request — untested under load until now)
-  - Whether the 20/min and 60/min rate limits actually return 429 and
-    recover, not just "the limiter is wired in"
-  - Guardrail blocking still works correctly when requests overlap
-  - No unhandled 500s under concurrency
-
-Usage:
-    venv/Scripts/python scripts/stress_test.py [--base-url http://localhost:8000]
+- Checks: no 500s under load, rate limits (20/min query, 60/min search) return 429,
+  guardrails and the nonsense-query case still behave under contention.
+- Run: `python scripts/stress_test.py [--base-url http://localhost:8000]`
 """
 
 import argparse
@@ -42,6 +29,7 @@ GUARDRAIL_CASES = [
 ]
 
 
+# POST one /v1/query and record status, latency and body.
 def hit_query(base_url: str, query: str) -> dict:
     t0 = time.perf_counter()
     try:
@@ -52,6 +40,7 @@ def hit_query(base_url: str, query: str) -> dict:
         return {"query": query, "status": None, "elapsed": time.perf_counter() - t0, "error": str(e)}
 
 
+# POST one small /v1/search and record status and latency.
 def hit_search(base_url: str, i: int) -> dict:
     t0 = time.perf_counter()
     try:
@@ -61,12 +50,8 @@ def hit_search(base_url: str, i: int) -> dict:
         return {"i": i, "status": None, "elapsed": time.perf_counter() - t0, "error": str(e)}
 
 
+# Fire n concurrent /v1/query calls; assert no crashes and guardrail/nonsense cases still hold.
 def run_query_burst(base_url: str, n_workers: int = 20):
-    """
-    /v1/query is rate-limited at 20/min. Fire more than that concurrently to
-    confirm 429s actually appear (never verified before this script existed)
-    and that every non-429 response is well-formed, not a crash.
-    """
     print(f"\n=== /v1/query concurrent burst ({n_workers} requests, limit is 20/min) ===")
     all_queries = (QUERY_CASES * 3 + GUARDRAIL_CASES)[:n_workers]
     results = []
@@ -108,12 +93,8 @@ def run_query_burst(base_url: str, n_workers: int = 20):
     return results
 
 
+# Fire 70 concurrent /v1/search calls against the 60/min limit; assert some get 429.
 def run_search_rate_limit_check(base_url: str, n_requests: int = 70):
-    """
-    /v1/search is rate-limited at 60/min. Fire 70 concurrently — this is the
-    part never actually exercised last session (the previous 25-request test
-    never crossed either threshold, so 429 behavior was unverified).
-    """
     print(f"\n=== /v1/search rate-limit verification ({n_requests} requests, limit is 60/min) ===")
     results = []
     with ThreadPoolExecutor(max_workers=n_requests) as ex:
@@ -137,6 +118,7 @@ def run_search_rate_limit_check(base_url: str, n_requests: int = 70):
     return results
 
 
+# CLI entry: health pre-flight, then both load checks.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8000")

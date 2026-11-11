@@ -1,60 +1,61 @@
-# tests/unit/test_labeling_functions.py
 """
-Unit tests for all labeling functions.
+# test_labeling_functions.py - unit tests for every Snorkel labeling function
 
-Strategy:
-    - Each LF gets a POSITIVE case (should fire) and an ABSTAIN case (should not fire).
-    - Conflict LFs also get a NEGATIVE case.
-    - We use pandas Series to simulate real rows — same as what Snorkel passes in.
-    - We never test with real dataset rows — hand-crafted examples only,
-      so tests are deterministic and don't depend on data files.
+- Hand-made pandas rows; each LF gets a firing case and an abstain case.
 """
-
 import pandas as pd
-import pytest
-
-from src.extraction.weak_supervision.labeling_functions import (
+from retailgraph.extraction.weak_supervision.labeling_functions import (
     # Constants
-    ABSTAIN, POSITIVE, NEGATIVE,
-    CAT_ABSTAIN, CAT_BEVERAGES, CAT_COFFEE_TEA, CAT_SNACKS,
-    CAT_CONDIMENTS, CAT_GRAINS, CAT_SPICES, CAT_SUPPLEMENTS,
-    CAT_NUTS, CAT_BAKING, CAT_PROTEIN_BAR,
-    # Dietary tag LFs
-    lf_organic_keyword,
-    lf_kosher_keyword,
-    lf_gluten_free_keyword,
-    lf_non_gmo_keyword,
-    lf_vegan_keyword,
-    lf_keto_keyword,
-    lf_paleo_keyword,
-    lf_dairy_free_keyword,
-    lf_sugar_free_keyword,
-    lf_nut_free_keyword,
-    lf_soy_free_keyword,
-    lf_high_protein_keyword,
-    lf_low_calorie_keyword,
-    lf_caffeine_free_keyword,
+    ABSTAIN,
+    CAT_ABSTAIN,
+    CAT_BAKING,
+    CAT_BEVERAGES,
+    CAT_COFFEE_TEA,
+    CAT_CONDIMENTS,
+    CAT_GRAINS,
+    CAT_NUTS,
+    CAT_PROTEIN_BAR,
+    CAT_SNACKS,
+    CAT_SPICES,
+    CAT_SUPPLEMENTS,
+    NEGATIVE,
+    POSITIVE,
     lf_allergen_free_keyword,
+    lf_allergen_implies_non_vegan,
+    lf_caffeine_free_keyword,
+    lf_category_baking,
     # Category LFs
     lf_category_beverages,
     lf_category_coffee_tea,
-    lf_category_snacks,
     lf_category_condiments,
     lf_category_grains,
+    lf_category_nuts,
+    lf_category_protein_bar,
+    lf_category_snacks,
     lf_category_spices,
     lf_category_supplements,
-    lf_category_nuts,
-    lf_category_baking,
-    lf_category_protein_bar,
-    # Hinglish LFs
-    lf_hinglish_masala,
-    lf_hinglish_grains,
     # Conflict LFs
     lf_conflict_vegan_dairy,
-    lf_allergen_implies_non_vegan,
+    lf_dairy_free_keyword,
+    lf_gluten_free_keyword,
+    lf_high_protein_keyword,
+    lf_hinglish_grains,
+    # Hinglish LFs
+    lf_hinglish_masala,
+    lf_image_url_coffee,
+    lf_keto_keyword,
+    lf_kosher_keyword,
+    lf_low_calorie_keyword,
+    lf_non_gmo_keyword,
+    lf_nut_free_keyword,
+    # Dietary tag LFs
+    lf_organic_keyword,
+    lf_paleo_keyword,
     # Price + image LFs
     lf_price_premium_organic,
-    lf_image_url_coffee,
+    lf_soy_free_keyword,
+    lf_sugar_free_keyword,
+    lf_vegan_keyword,
 )
 
 

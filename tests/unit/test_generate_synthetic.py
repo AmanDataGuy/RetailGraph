@@ -1,34 +1,32 @@
-# tests/unit/test_generate_synthetic.py
-"""
-Unit tests for training/generate_synthetic.py.
+"""# test_generate_synthetic.py - unit tests for training/generate_synthetic.py
 
-Testing strategy:
-    - All tests are pure Python — no LLM calls, no file I/O unless using tmp_path.
-    - We test template correctness, quota logic, pair structure,
-      JSON validity, and the full pipeline end to end.
+- Pure Python, no API calls; file outputs go to tmp_path.
+- Run: pytest tests/unit/test_generate_synthetic.py
 """
 
 import csv
 import json
 import random
-import pytest
-from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from retailgraph.extraction.prompt_templates import (
+    ALLOWED_CATEGORIES,
+    ALLOWED_DIETARY_TAGS,
+    CANONICAL_UNITS,
+)
+
 from training.generate_synthetic import (
-    UNDERREPRESENTED_CATEGORIES,
     CATEGORY_TEMPLATES,
     MAX_SYNTHETIC_RATIO,
-    TRAIN_RATIO,
+    UNDERREPRESENTED_CATEGORIES,
+    _generate_bullets,
+    _generate_catalog_content,
     compute_synthetic_quota,
     generate_synthetic_pairs,
-    save_synthetic_pairs,
     run_synthetic_generation,
-    _generate_catalog_content,
-    _generate_bullets,
+    save_synthetic_pairs,
 )
-from src.extraction.prompt_templates import ALLOWED_CATEGORIES, ALLOWED_DIETARY_TAGS, CANONICAL_UNITS
-
 
 # ── CATEGORY_TEMPLATES Tests ──────────────────────────────────────────────────
 

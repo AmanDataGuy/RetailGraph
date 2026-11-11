@@ -1,74 +1,50 @@
-.PHONY: run test lint ingest train benchmark docker-up reset-graph review-queue help
+# # Makefile - one-word shortcuts for running, testing and loading RetailGraph
+#
+# - Every target calls a script that exists in this repo.
+# - Run `make` (or `make help`) to list them.
 
-# ── Config ────────────────────────────────────────────────────────────────────
-PYTHON     := python
-STREAMLIT  := streamlit
-PYTEST     := pytest
-COMPOSE    := docker compose
+.PHONY: help run test lint ingest train benchmark docker-up docker-down
 
-# ── Default target ────────────────────────────────────────────────────────────
+PYTHON  := python
+COMPOSE := docker compose
+# Lets `retailgraph.*` import without `pip install -e .` (also covers training/ and eval/).
+export PYTHONPATH := src:.
+
 help:
 	@echo ""
-	@echo "  RetailGraph — available commands"
-	@echo ""
-	@echo "  make run            Start FastAPI + Streamlit"
-	@echo "  make test           Run full pytest suite"
-	@echo "  make lint           Run Ruff + Black checks"
-	@echo "  make ingest         Extract → validate → load into Neo4j"
-	@echo "  make train          Fine-tune Qwen2-VL (requires H100)"
-	@echo "  make benchmark      Run 50 test queries against ground truth"
-	@echo "  make docker-up      Spin up full stack (Neo4j, Kafka, Redis, MLflow)"
-	@echo "  make reset-graph    ⚠️  Wipe Neo4j and rebuild indexes (dev only)"
-	@echo "  make review-queue   Open Streamlit human review UI"
+	@echo "  make run          Start FastAPI (:8000) + Streamlit (:8501)"
+	@echo "  make test         Run the unit tests"
+	@echo "  make lint         Run Ruff"
+	@echo "  make ingest       Create Neo4j indexes, load the graph, load Qdrant vectors"
+	@echo "  make train        Fine-tune Qwen2-VL on Modal (needs a Modal account)"
+	@echo "  make benchmark    Run the 30-query vector/graph/GraphRAG benchmark"
+	@echo "  make docker-up    Start Neo4j + API + UI with docker compose"
+	@echo "  make docker-down  Stop them"
 	@echo ""
 
-# ── Development ───────────────────────────────────────────────────────────────
 run:
-	@echo "▶  Starting FastAPI..."
-	uvicorn src.api.main:app --reload --port 8000 &
-	@echo "▶  Starting Streamlit..."
-	$(STREAMLIT) run app.py
+	uvicorn retailgraph.api.main:app --reload --port 8000 &
+	streamlit run src/retailgraph/ui/app.py
 
 test:
-	@echo "▶  Running tests..."
-	$(PYTEST) tests/ -v --tb=short --cov=src --cov-report=term-missing
+	pytest tests -q
 
 lint:
-	@echo "▶  Running Ruff..."
-	ruff check .
-	@echo "▶  Running Black..."
-	black --check .
+	ruff check src tests
 
-# ── Pipeline ──────────────────────────────────────────────────────────────────
 ingest:
-	@echo "▶  Running extraction..."
-	$(PYTHON) scripts/run_extraction.py --input data/raw/train.csv
-	@echo "▶  Building graph..."
-	$(PYTHON) scripts/build_graph.py --input data/extracted/entities.jsonl
+	$(PYTHON) scripts/create_indexes.py
+	$(PYTHON) -m retailgraph.graph.builder
+	$(PYTHON) -m retailgraph.graph.vector_store
 
 train:
-	@echo "▶  Starting fine-tuning (ensure H100 is available)..."
-	$(PYTHON) training/finetune_qwen.py
+	modal run training/finetune_qwen.py
 
 benchmark:
-	@echo "▶  Running benchmark suite..."
-	$(PYTHON) evaluation/benchmark.py
+	$(PYTHON) scripts/run_benchmark.py
 
-# ── Docker ────────────────────────────────────────────────────────────────────
 docker-up:
-	@echo "▶  Spinning up full stack..."
 	$(COMPOSE) up --build
 
 docker-down:
 	$(COMPOSE) down
-
-# ── Graph ─────────────────────────────────────────────────────────────────────
-reset-graph:
-	@echo "⚠️  This will WIPE the entire Neo4j graph. Are you sure? [y/N]" && read ans && [ $${ans:-N} = y ]
-	$(PYTHON) scripts/reset_graph.py
-	$(PYTHON) scripts/create_indexes.py
-	@echo "✅  Graph wiped and indexes rebuilt."
-
-# ── UI ────────────────────────────────────────────────────────────────────────
-review-queue:
-	$(STREAMLIT) run app_pages/review_queue.py

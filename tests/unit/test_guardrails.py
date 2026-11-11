@@ -1,17 +1,15 @@
 """
-Unit tests for src/agent/guardrails.py — pure functions, no live infra needed.
+# test_guardrails.py - unit tests for agent/guardrails.py (pure functions, no live infra)
 
-Runs every case in eval/guardrail_queries.yaml through check_input() and
-asserts the block/allow outcome and category match what's expected. Includes
-the "should NOT be blocked" cases deliberately — a checker that blocks
-everything would pass a catch-rate-only test suite while being useless.
+- Runs every case in eval/guardrail_queries.yaml through check_input(), including must-NOT-block cases.
+- Checks check_output()'s groundedness heuristic.
 """
 
-import yaml
-import pytest
 from pathlib import Path
 
-from src.agent.guardrails import check_input, check_output
+import pytest
+import yaml
+from retailgraph.agent.guardrails import check_input, check_output
 
 CASES = yaml.safe_load(
     (Path(__file__).parent.parent.parent / "eval" / "guardrail_queries.yaml").read_text()

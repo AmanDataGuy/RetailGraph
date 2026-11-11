@@ -5,12 +5,7 @@
 # checked 2026-07-26). expected_intent/route describe what the agent SHOULD
 # pick; the eval runner checks the agent's actual choice against these.
 #
-# Two entries (q29, q30) are deliberate known-bug probes: the agent's
-# ALLOWED_TAGS in src/agent/nodes.py includes "keto" and "allergen-free",
-# but the graph's actual DietaryTag nodes are "keto-friendly", and no product
-# carries "allergen-free" at all — so a real user query like "keto snacks"
-# silently returns 0 results today. These are marked known_bug: true — the
-# eval should surface this, not hide it.
+# q30 ("allergen-free products") must return 0: no product carries that tag.
 
 - id: q1
   query: "vegan gluten-free snacks under $10"
@@ -33,7 +28,7 @@
   gold_cypher: >
     MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Beverages'})
     MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'gluten-free'})
-    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'peanut'}) }
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(a:Allergen) WHERE a.name CONTAINS 'peanut' }
     RETURN count(p)
 
 - id: q3
@@ -86,8 +81,8 @@
   gold_cypher: >
     MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
     MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'non-GMO'})
-    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'egg'}) }
-      AND NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'soy'}) }
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(a:Allergen) WHERE a.name CONTAINS 'egg' }
+      AND NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(a:Allergen) WHERE a.name CONTAINS 'soy' }
     RETURN count(p)
 
 - id: q8
@@ -256,7 +251,7 @@
   gold_cypher: >
     MATCH (p:Product)-[:BELONGS_TO]->(c:Category {name:'Snacks & Candy'})
     MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'high-protein'})
-    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(:Allergen {name:'soy'}) }
+    WHERE NOT EXISTS { MATCH (p)-[:CONTAINS_ALLERGEN]->(a:Allergen) WHERE a.name CONTAINS 'soy' }
     RETURN count(p)
 
 - id: q25
@@ -297,18 +292,16 @@
 
 - id: q29
   query: "keto snacks"
-  type: known_bug_probe
+  type: multi_constraint_filter
   expected_intent: filter
   expected_route: cypher
-  expected_result_count: 0
-  known_bug: true
-  gold_cypher: "MATCH (p:Product)-[:HAS_TAG]->(:DietaryTag {name:'keto'}) RETURN count(p)"
+  expected_result_count: 16
+  gold_cypher: >
+    MATCH (p:Product)-[:BELONGS_TO]->(:Category {name:'Snacks & Candy'})
+    MATCH (p)-[:HAS_TAG]->(:DietaryTag {name:'keto-friendly'}) RETURN count(p)
   notes: >
-    KNOWN BUG: agent's ALLOWED_TAGS (src/agent/nodes.py) includes "keto", but
-    the graph's real tag is "keto-friendly" (48 products have it). This query
-    is expected to return 0 today. Fix = normalize "keto"->"keto-friendly" in
-    extract_intent, or rename the DietaryTag node. Left unfixed intentionally
-    so the eval measures and tracks this regression until it's addressed.
+    Was a known-bug probe ("keto" vs the graph's "keto-friendly"); fixed once
+    ALLOWED_TAGS matched the live graph, so it is now a normal filter query.
 
 - id: q30
   query: "allergen-free products"

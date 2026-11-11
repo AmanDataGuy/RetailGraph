@@ -7,8 +7,8 @@
 # http://127.0.0.1:8000, which resolves in-container, so no code change
 # elsewhere is needed for either platform.
 set -e
-uvicorn src.api.main:app --host 127.0.0.1 --port 8000 &
-exec streamlit run app.py \
+uvicorn retailgraph.api.main:app --host 127.0.0.1 --port 8000 &
+exec streamlit run src/retailgraph/ui/app.py \
   --server.port "${PORT:-7860}" \
   --server.address 0.0.0.0 \
   --server.headless true \

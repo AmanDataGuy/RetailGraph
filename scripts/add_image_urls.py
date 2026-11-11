@@ -1,6 +1,13 @@
+"""
+# add_image_urls.py - sets p.image_url on every Product to its image on the Hugging Face dataset
+
+- One-off write to Neo4j. Run: `python scripts/add_image_urls.py`.
+"""
+
+import os
+
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
-import os
 
 load_dotenv()
 
@@ -16,12 +23,8 @@ with driver.session(database=os.getenv("NEO4J_DATABASE")) as s:
     print(f"Found {len(ids)} products in Neo4j")
 
     for i, pid in enumerate(ids):
-        url = f"{HF_BASE}/{pid}.jpg"
-        s.run(
-            "MATCH (p:Product {product_id: $pid}) SET p.image_url = $url",
-            pid=pid,
-            url=url
-        )
+        s.run("MATCH (p:Product {product_id: $pid}) SET p.image_url = $url",
+              pid=pid, url=f"{HF_BASE}/{pid}.jpg")
         if (i + 1) % 100 == 0:
             print(f"Progress: {i + 1}/{len(ids)}")
 

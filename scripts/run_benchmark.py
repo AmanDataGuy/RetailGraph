@@ -1,26 +1,25 @@
 """
-RetailGraph — GraphRAG vs VectorRAG vs Neo4j-only Benchmark
-Run from project root:
-    $env:PYTHONPATH = "C:\\Users\\AMAND\\projects\\RetailGraph"
-    python scripts/run_benchmark.py
+# run_benchmark.py - scores Vector-only vs Neo4j-only vs GraphRAG on 30 ground-truth queries
+
+- Writes evaluation/benchmark_results.json. Needs live Neo4j + Qdrant.
+- Run from the repo root: `python scripts/run_benchmark.py`
 """
 
+import json
 import os
 import re
 import time
-import json
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.graph.queries import GraphQueries
-from src.graph.vector_store import search as qdrant_search
-from src.graph.hybrid_search import HybridSearch
+from retailgraph.graph.hybrid_search import HybridSearch
+from retailgraph.graph.queries import GraphQueries
+from retailgraph.graph.vector_store import search as qdrant_search
 
-# ── Shared constraint parser ────────────────────────────────────────────────
-# Used by all three systems so none of them gets an unfair advantage from
-# constraint-extraction logic another system doesn't have. Tag list is the
-# live, verified DietaryTag vocabulary (MATCH (t:DietaryTag), 2026-08-21) —
-# same source of truth as src/agent/nodes.py's ALLOWED_TAGS.
+# One constraint parser shared by all three systems so none gets an unfair advantage.
+# Tag list mirrors the graph's DietaryTag vocabulary (same as agent/nodes.py ALLOWED_TAGS).
 _TAGS = ["vegan", "gluten-free", "kosher", "organic", "dairy-free",
          "non-GMO", "high-protein", "keto-friendly", "nut-free",
          "soy-free", "caffeine-free", "sugar-free", "vegetarian", "halal"]
@@ -36,15 +35,9 @@ _CATEGORY_KEYWORDS = [
 _NEGATION_PATTERNS = ["not ", "excluding ", "without ", "no "]
 
 
+# Pull (tags, category, min_price, max_price, exclude_tags) from a query;
+# a tag right after "not/excluding/without/no" is excluded instead of required.
 def parse_constraints(query: str) -> tuple[list, str | None, float | None, float | None, list]:
-    """
-    Extract dietary tags, category, min/max price, and excluded tags from a
-    query string. Returns (tags, category, min_price, max_price, exclude_tags).
-
-    A tag is treated as EXCLUDED if one of _NEGATION_PATTERNS immediately
-    precedes it in the lowercased query text (e.g. "not vegan", "excluding
-    nuts") — otherwise it's a required (positive) constraint.
-    """
     q = query.lower()
 
     tags, exclude_tags = [], []
@@ -78,11 +71,10 @@ def parse_constraints(query: str) -> tuple[list, str | None, float | None, float
 
     return tags, cat, min_p, max_p, exclude_tags
 
-# ── Ground truth ──────────────────────────────────────────────────────────────
 
+# Ground-truth queries: each has a check(results) -> bool.
 QUERIES = [
-
-    # ── Type 1: Multi-constraint (GraphRAG should win) ────────────────────────
+    # Multi-constraint (GraphRAG should win)
     {
         "id": 1, "type": "multi_constraint",
         "query": "vegan snacks under $5",
@@ -154,7 +146,7 @@ QUERIES = [
         "expected": "All results organic + price ≤ $10",
     },
 
-    # ── Type 2: Semantic (all systems attempt, GraphRAG re-ranks) ─────────────
+    # Semantic (all systems attempt, GraphRAG re-ranks)
     {
         "id": 8, "type": "semantic",
         "query": "something similar to sriracha",
@@ -198,7 +190,7 @@ QUERIES = [
         "expected": "Returns sauce or condiment products",
     },
 
-    # ── Type 3: Analytics (only Neo4j can answer these) ───────────────────────
+    # Analytics (only Neo4j can answer these)
     {
         "id": 15, "type": "analytics",
         "query": "which category has the most products",
@@ -254,7 +246,7 @@ QUERIES = [
         "expected": "Coffee & Tea (~$32.07 avg)",
     },
 
-    # ── Type 4: Compound (4+ simultaneous constraints) ─────────────────────────
+    # Compound (4+ simultaneous constraints)
     {
         "id": 21, "type": "compound",
         "query": "organic gluten-free coffee between $10 and $25",
@@ -278,7 +270,7 @@ QUERIES = [
         "expected": "All results dairy-free + soy-free + price ≥ $20",
     },
 
-    # ── Type 5: Negation (exclude a tag, not just allergens) ───────────────────
+    # Negation (exclude a tag, not just allergens)
     {
         "id": 23, "type": "negation",
         "query": "kosher snacks under $5 that are not vegan",
@@ -301,7 +293,7 @@ QUERIES = [
         "expected": "All results gluten-free + NOT sugar-free",
     },
 
-    # ── Type 6: Price range (harder than a single "under $X") ──────────────────
+    # Price range (harder than a single "under $X")
     {
         "id": 25, "type": "price_range",
         "query": "beverages between $15 and $30",
@@ -321,8 +313,7 @@ QUERIES = [
         "expected": "All results price ≥ $10",
     },
 
-    # ── Type 7: Subtle semantic (no literal category/tag keyword in the query —
-    #    requires genuine embedding understanding, not keyword matching) ───────
+    # Subtle semantic (no literal category/tag keyword; needs real embedding understanding)
     {
         "id": 27, "type": "subtle_semantic",
         "query": "something to spice up a bland dinner",
@@ -336,11 +327,7 @@ QUERIES = [
         "expected": "Returns coffee/tea products",
     },
 
-    # ── Type 8: Multi-hop (the one thing vector search structurally cannot do,
-    #    and the current GraphRAG implementation doesn't attempt either — every
-    #    other query type here is single-hop, exactly where vector search is
-    #    competitive; this type tests the actual differentiator a knowledge
-    #    graph is supposed to provide) ──────────────────────────────────────────
+    # Multi-hop (vector search can't do this and GraphRAG doesn't attempt it; only Cypher can)
     {
         "id": 29, "type": "multi_hop",
         "query": "brands that sell products in both Coffee & Tea and Snacks & Candy",
@@ -359,20 +346,8 @@ QUERIES = [
     },
 ]
 
-# ── System runners ─────────────────────────────────────────────────────────────
-
+# System A: Qdrant search with the same parsed payload filters the other systems get.
 def run_vector_only(query_obj: dict, hs: HybridSearch) -> tuple[list, float]:
-    """
-    System A — Qdrant semantic search WITH the same payload filters (tags,
-    category, price) the other two systems get. Previously this called
-    qdrant_search(query, top_k=10) — missing the required `client`/`model`
-    positional args, so every call raised TypeError and was silently
-    swallowed by the bare except below, and even if it hadn't crashed, no
-    constraint filters were ever applied. Both are fixed here: real
-    client/model are passed, and filters are parsed the same way GraphRAG's
-    are so this is a fair "vector + payload filter" baseline, not a
-    constraint-blind unfiltered search that fails by construction.
-    """
     tags, cat, min_p, max_p, excl = parse_constraints(query_obj["query"])
     try:
         t0 = time.time()
@@ -395,8 +370,8 @@ def run_vector_only(query_obj: dict, hs: HybridSearch) -> tuple[list, float]:
         return [], 0.0
 
 
+# System B: Neo4j Cypher templates only, no vector search.
 def run_graph_only(query_obj: dict) -> tuple[list, float]:
-    """System B — Neo4j Cypher templates only, no vector search."""
     q = GraphQueries()
     t0 = time.time()
     results = []
@@ -435,8 +410,7 @@ def run_graph_only(query_obj: dict) -> tuple[list, float]:
             )
 
         elif qtype == "multi_hop":
-            # Genuine 2-hop Cypher — the one thing vector search and the
-            # current GraphRAG implementation both structurally can't do.
+            # Real 2-hop Cypher.
             if "coffee" in query and "snacks" in query:
                 cypher = """
 MATCH (b:Brand)<-[:MADE_BY]-(:Product)-[:BELONGS_TO]->(:Category {name: 'Coffee & Tea'})
@@ -464,8 +438,8 @@ LIMIT 10
     return results, latency
 
 
+# System C: GraphRAG hybrid search with the parsed constraints.
 def run_graphrag(query_obj: dict, hs: HybridSearch) -> tuple[list, float]:
-    """System C — GraphRAG hybrid: Qdrant candidates + Neo4j constraints."""
     tags, cat, min_p, max_p, excl = parse_constraints(query_obj["query"])
     try:
         t0 = time.time()
@@ -485,8 +459,7 @@ def run_graphrag(query_obj: dict, hs: HybridSearch) -> tuple[list, float]:
         return [], 0.0
 
 
-# ── Main benchmark ─────────────────────────────────────────────────────────────
-
+# True if there are results and the query's check passes (a crashing check counts as a miss).
 def score(results: list, check_fn) -> bool:
     if not results:
         return False
@@ -496,6 +469,12 @@ def score(results: list, check_fn) -> bool:
         return False
 
 
+# Mean of a list rounded to 2 places (0 for an empty list).
+def avg(lst: list) -> float:
+    return round(sum(lst) / len(lst), 2) if lst else 0
+
+
+# Run every query through all three systems, print the scoreboard and save the JSON.
 def run_benchmark():
     n_queries = len(QUERIES)
     print("\n" + "="*70)
@@ -513,44 +492,31 @@ def run_benchmark():
     for q in QUERIES:
         print(f"[{q['id']:02d}/{n_queries}] {q['query'][:55]:<55}", end=" ", flush=True)
 
-        r_vec,  lat_vec  = run_vector_only(q, hs)
-        r_gph,  lat_gph  = run_graph_only(q)
-        r_rag,  lat_rag  = run_graphrag(q, hs)
+        runs = {  # run order matters for timing: vector, graph, graphrag
+            "vector": run_vector_only(q, hs),
+            "graph": run_graph_only(q),
+            "graphrag": run_graphrag(q, hs),
+        }
+        ok = {k: score(results, q["check"]) for k, (results, _) in runs.items()}
+        type_score = type_scores.setdefault(
+            q["type"], {"vector": 0, "graph": 0, "graphrag": 0, "total": 0})
+        for k in totals:
+            totals[k] += int(ok[k])
+            latencies[k].append(runs[k][1])
+            type_score[k] += int(ok[k])
+        type_score["total"] += 1
 
-        s_vec = score(r_vec, q["check"])
-        s_gph = score(r_gph, q["check"])
-        s_rag = score(r_rag, q["check"])
-
-        totals["vector"]   += int(s_vec)
-        totals["graph"]    += int(s_gph)
-        totals["graphrag"] += int(s_rag)
-
-        latencies["vector"].append(lat_vec)
-        latencies["graph"].append(lat_gph)
-        latencies["graphrag"].append(lat_rag)
-
-        t = q["type"]
-        if t not in type_scores:
-            type_scores[t] = {"vector": 0, "graph": 0, "graphrag": 0, "total": 0}
-        type_scores[t]["vector"]   += int(s_vec)
-        type_scores[t]["graph"]    += int(s_gph)
-        type_scores[t]["graphrag"] += int(s_rag)
-        type_scores[t]["total"]    += 1
-
-        v = "✅" if s_vec else "❌"
-        g = "✅" if s_gph else "❌"
-        r = "✅" if s_rag else "❌"
+        v, g, r = ("✅" if ok[k] else "❌" for k in ("vector", "graph", "graphrag"))
         print(f"Vector {v}  Graph {g}  GraphRAG {r}")
 
         rows.append({
             "id": q["id"], "type": q["type"], "query": q["query"],
-            "vector": s_vec, "graph": s_gph, "graphrag": s_rag,
-            "lat_vec": lat_vec, "lat_gph": lat_gph, "lat_rag": lat_rag,
+            "vector": ok["vector"], "graph": ok["graph"], "graphrag": ok["graphrag"],
+            "lat_vec": runs["vector"][1], "lat_gph": runs["graph"][1],
+            "lat_rag": runs["graphrag"][1],
         })
 
-    # ── Summary ────────────────────────────────────────────────────────────────
     n = len(QUERIES)
-    avg = lambda lst: round(sum(lst) / len(lst), 2) if lst else 0
 
     print("\n" + "="*70)
     print("  RESULTS SUMMARY")
@@ -561,19 +527,18 @@ def run_benchmark():
     print(f"  {'Graph only (Neo4j)':<20} {totals['graph']:>5}/{n} ({100*totals['graph']//n:>2}%)  {avg(latencies['graph']):>8}s")
     print(f"  {'GraphRAG (hybrid)':<20} {totals['graphrag']:>5}/{n} ({100*totals['graphrag']//n:>2}%)  {avg(latencies['graphrag']):>8}s")
 
-    print(f"\n  BREAKDOWN BY QUERY TYPE")
+    print("\n  BREAKDOWN BY QUERY TYPE")
     print(f"  {'-'*60}")
     for t, s in type_scores.items():
         n_t = s["total"]
         print(f"  {t:<20}  Vector {s['vector']}/{n_t}  Graph {s['graph']}/{n_t}  GraphRAG {s['graphrag']}/{n_t}")
 
-    print(f"\n  KEY FINDING:")
+    print("\n  KEY FINDING:")
     rag_win = totals['graphrag'] - max(totals['vector'], totals['graph'])
     best_other = "Vector" if totals['vector'] > totals['graph'] else "Graph"
     print(f"  GraphRAG scores {totals['graphrag']}/{n} vs best alternative ({best_other}) at {max(totals['vector'],totals['graph'])}/{n}")
     print(f"  Improvement: +{rag_win} queries answered correctly\n")
 
-    # Save results
     out_path = "evaluation/benchmark_results.json"
     os.makedirs("evaluation", exist_ok=True)
     with open(out_path, "w") as f:

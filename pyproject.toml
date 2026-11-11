@@ -1,11 +1,67 @@
+# # pyproject.toml - package metadata, dependencies and tool config for RetailGraph
+#
+# - `pip install -e ".[dev]"` gives the app plus test tools.
+# - Core deps = what the API, agent and UI import at runtime (also what the Docker image installs).
+# - `pipeline` = offline extraction / graph-building / training-data scripts.
+#   Fine-tuning itself runs on Modal, which builds its own image inside training/*.py.
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retailgraph"
+version = "1.0.0"
+description = "Grocery knowledge graph + GraphRAG agent over a fine-tuned Qwen2-VL extraction pipeline"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi==0.111.0",
+    "uvicorn[standard]==0.29.0",
+    "pydantic==2.7.1",
+    "slowapi==0.1.10",
+    "python-dotenv==1.0.1",
+    "neo4j==5.20.0",
+    "groq==1.0.0",
+    "qdrant-client==1.17.1",
+    "fastembed==0.8.0",
+    "langgraph==0.1.6",
+    "streamlit==1.35.0",
+    "requests==2.32.5",
+    "PyYAML==6.0.1",
+]
+
+[project.optional-dependencies]
+# Tests also cover the offline pipeline, so they need its light deps (snorkel pulls torch).
+dev = ["pytest==8.2.1", "pytest-mock==3.14.0", "ruff==0.4.5", "rapidfuzz==3.9.1", "pandas==2.2.2", "snorkel==0.9.9"]
+pipeline = [
+    "rapidfuzz==3.9.1",
+    "pandas==2.2.2",
+    "snorkel==0.9.9",
+    "mlflow==2.13.0",
+    "modal",
+    "Pillow==10.3.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+retailgraph = ["domain_adapter/*.yaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
 [tool.ruff]
-line-length = 88
-target-version = "py310"
+line-length = 100
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]
-"scripts/*" = ["T201"]
+# Tests: broad pytest.raises, unused loop vars and literal defaults are fine.
+"tests/*" = ["B007", "B017", "B006"]

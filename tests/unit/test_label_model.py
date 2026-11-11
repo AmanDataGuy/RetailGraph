@@ -1,25 +1,15 @@
-# tests/unit/test_label_model.py
 """
-Unit tests for label_model.py.
+# test_label_model.py - unit tests for the weak-supervision label model pipeline
 
-Testing strategy:
-    - We never run the full LabelModel.fit() in unit tests — it's slow
-      and non-deterministic. Instead we mock it and test the logic
-      around it: threshold application, result building, CSV output.
-    - apply_*_lfs() functions ARE tested with real data because they
-      just call Snorkel's applier — deterministic and fast.
-    - We use a small synthetic dataframe (5–10 rows) so tests run
-      in milliseconds.
+- LabelModel.fit is mocked; LF application runs on a small synthetic dataframe.
 """
-
 import json
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-from src.extraction.weak_supervision.label_model import (
+from retailgraph.extraction.weak_supervision.label_model import (
     AUTO_ACCEPT_THRESHOLD,
     AUTO_REJECT_THRESHOLD,
     CATEGORY_NAMES,
@@ -27,21 +17,19 @@ from src.extraction.weak_supervision.label_model import (
     LFStats,
     WeakLabelResult,
     _get_status,
+    analyze_lfs,
     apply_category_lfs,
     apply_dietary_lfs,
-    analyze_lfs,
     build_results,
-    save_labeled_output,
     run_label_pipeline,
+    save_labeled_output,
 )
-from src.extraction.weak_supervision.labeling_functions import (
+from retailgraph.extraction.weak_supervision.labeling_functions import (
+    CAT_COFFEE_TEA,
     CATEGORY_LFS,
     DIETARY_TAG_LFS,
-    CAT_COFFEE_TEA,
     POSITIVE,
-    ABSTAIN,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -392,7 +380,7 @@ class TestSaveLabeledOutput:
     def test_csv_created(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -401,7 +389,7 @@ class TestSaveLabeledOutput:
     def test_csv_has_correct_row_count(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -411,7 +399,7 @@ class TestSaveLabeledOutput:
     def test_csv_has_required_columns(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -425,7 +413,7 @@ class TestSaveLabeledOutput:
     def test_dietary_tags_pipe_separated(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -436,7 +424,7 @@ class TestSaveLabeledOutput:
     def test_tag_probs_valid_json(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -448,7 +436,7 @@ class TestSaveLabeledOutput:
     def test_empty_dietary_tags_saved_as_empty_string(self, tmp_path):
         results = self._make_results()
         with patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             save_labeled_output(results)
@@ -479,10 +467,10 @@ class TestRunLabelPipeline:
         ] + [mock_probs_diet] * len(DIETARY_TAGS)  # called once per tag
 
         with patch(
-            "src.extraction.weak_supervision.label_model.LabelModel",
+            "retailgraph.extraction.weak_supervision.label_model.LabelModel",
             return_value=mock_model
         ), patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             results = run_label_pipeline(small_df)
@@ -498,10 +486,10 @@ class TestRunLabelPipeline:
         )
 
         with patch(
-            "src.extraction.weak_supervision.label_model.LabelModel",
+            "retailgraph.extraction.weak_supervision.label_model.LabelModel",
             return_value=mock_model
         ), patch(
-            "src.extraction.weak_supervision.label_model.OUTPUT_PATH",
+            "retailgraph.extraction.weak_supervision.label_model.OUTPUT_PATH",
             tmp_path / "weak_labels.csv"
         ):
             run_label_pipeline(small_df)

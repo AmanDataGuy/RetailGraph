@@ -2,26 +2,24 @@
 
 # RetailGraph
 
-**Multimodal entity extraction and knowledge graph platform for grocery product catalogs.**
+**Entity extraction + knowledge graph + GraphRAG agent for grocery product catalogs.**
 
-Fine-tuned Qwen2-VL 7B extracts structured entities from product listings → loads into a typed Neo4j knowledge graph → queried in plain English by a LangGraph + GraphRAG agent.
+A fine-tuned Qwen2-VL 7B turns raw product listings into structured entities → they load into a typed Neo4j graph and a Qdrant vector index → a LangGraph agent answers plain-English questions with graph, vector or hybrid retrieval.
 
+[![CI](https://github.com/AmanDataGuy/RetailGraph/actions/workflows/ci.yml/badge.svg)](https://github.com/AmanDataGuy/RetailGraph/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11-3776ab?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![Model](https://img.shields.io/badge/Qwen2--VL_7B-QLoRA-blueviolet?style=flat-square)](https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct)
-[![Accuracy](https://img.shields.io/badge/Extraction_Accuracy-92.0%25-brightgreen?style=flat-square)](#results)
-[![Neo4j](https://img.shields.io/badge/Neo4j-AuraDB-008CC1?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com)
-[![Qdrant](https://img.shields.io/badge/Qdrant-Vector_Store-dc244c?style=flat-square)](https://qdrant.tech)
+[![Neo4j](https://img.shields.io/badge/Neo4j-5-008CC1?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com)
+[![Qdrant](https://img.shields.io/badge/Qdrant-1.17-dc244c?style=flat-square)](https://qdrant.tech)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Agent-1C3C3C?style=flat-square)](https://langchain-ai.github.io/langgraph/)
 
 </div>
 
 ---
 
-## What It Does
+## What it does
 
-Raw grocery listings (text + images) go in → a fine-tuned vision-language model extracts structured entities (brand, category, price, allergens, dietary tags) → everything loads into a typed Neo4j graph alongside Qdrant vectors → a LangGraph agent answers natural language questions using hybrid graph + vector retrieval.
-
-> **"Vectors guess. Graphs know. GraphRAG does both."**
+Grocery listings go in as text → the fine-tuned model extracts category, quantity, unit, dietary tags and allergens → records are deduplicated and loaded into Neo4j (5 node types, 4 relationship types) and embedded into Qdrant → a 6-node LangGraph agent routes each question to exact Cypher filters, GraphRAG hybrid search, or graph analytics, and answers with Groq `openai/gpt-oss-120b`.
 
 ![RetailGraph — vegan snacks query with product results](assets/demo.png)
 
@@ -29,30 +27,48 @@ Raw grocery listings (text + images) go in → a fine-tuned vision-language mode
 
 ## Results
 
-| Extraction Accuracy | Knowledge Graph | Vector Store |
-|:---:|:---:|:---:|
-| **92.0%** across 8 tested fields | **2,160** products · **6,248** relationships | **2,161** vectors · 384-dim |
-| 678 val examples · 0 parse errors | 1,041 brands · 17 categories · 10 canonical allergens | all-MiniLM-L6-v2 |
+### Agent — 30 golden queries, live stack (2026-11-11)
 
-### Field accuracy — 678 held-out examples
+`eval/collect_results.py` runs the real agent against Neo4j + Qdrant + Groq and checks it against hand-verified gold Cypher. No LLM judge.
 
-| Field | Exact Match | LLM Judge |
+| Metric | Score |
+|---|---|
+| Route accuracy (Cypher / GraphRAG / analytics) | **96.7%** (29/30) |
+| Execution accuracy — agent's true match count == gold count | **94.7%** (18/19) |
+| Analytics answers contain the right name + number | **100%** (4/4) |
+| Intent label accuracy | 90.0% (27/30) |
+| Latency p50 / max (incl. 2 LLM calls) | 3.1 s / 11 s |
+
+Raw per-query rows: `evaluation/agent_eval_raw.json`.
+
+### Extraction — Qwen2-VL 7B + QLoRA, 678 val examples
+
+| Field | Exact match | LLM judge (GPT-4o-mini) |
 |---|---|---|
-| Brand · Price · Pack Size | 100% | — |
-| Quantity Unit | 92.6% | — |
-| Allergen List | 91.5% | 4.68 / 5 |
-| Quantity Value | 88.2% | — |
-| Dietary Tags | 85.7% | 4.47 / 5 |
+| Quantity unit | 92.6% | — |
+| Allergen list | 91.5% | 4.68 / 5 |
+| Quantity value | 88.2% | — |
+| Dietary tags | 85.7% | 4.47 / 5 |
 | Category | 78.3% | 4.22 / 5 |
-| Packaging Type · Color · Brand Logo (visual) | not yet measured — no labeled visual test set | — |
-| **Overall (mean of 8 tested fields)** | **92.0%** | 0 parse errors · 8.7s/product |
+| **Mean of the 5 fields** | **87.3%** | 0 parse errors · 8.7 s/product |
 
-Visual fields (packaging type/color, brand-logo presence) are extracted by the
-model but not yet scored against ground truth — a labeled visual validation
-set doesn't exist yet, so they're reported separately rather than folded into
-the headline number.
+- Brand and pack size were never in the teacher labels, and price is copied from the input, so they are left out of the mean.
+- Ground truth is GPT-4o-mini teacher labels, not human labels. The val split overlaps training through the visual pairs (see *Limitations*).
+- The judge surfaced 38 dietary-tag predictions that were correct but failed string equality.
 
-LLM-as-Judge (GPT-4o-mini) scores semantic correctness independently of exact string match — it surfaced **38 dietary-tag predictions that were correct but failed string equality**.
+### Knowledge graph
+
+**2,160** products · **6,248** relationships · 1,041 brands · 17 categories · 17 dietary tags · 47 raw allergen strings · **2,161** Qdrant vectors (all-MiniLM-L6-v2, 384-dim).
+
+### Retrieval smoke test — `scripts/run_benchmark.py`
+
+| System | Passed (30 queries) | Avg latency |
+|---|---|---|
+| Vector only (Qdrant) | 24 | 0.62 s |
+| Graph only (Neo4j) | 29 | 1.76 s |
+| GraphRAG (hybrid) | 25 | 0.91 s |
+
+Several checks only test that results came back, so this is a smoke test, not a retrieval-quality score. Graph-only wins on multi-hop and aggregation queries, which is why the agent routes those to Cypher.
 
 ---
 
@@ -60,104 +76,89 @@ LLM-as-Judge (GPT-4o-mini) scores semantic correctness independently of exact st
 
 ![RetailGraph Pipeline](assets/pipeline.svg)
 
-**1 — Extraction.** Qwen2-VL 7B fine-tuned with QLoRA (rank 16, 4-bit) on Modal A100 80GB via Unsloth. Pydantic v2 enforces the output schema with a 3-step retry loop; Snorkel provides weak supervision through **31 labeling functions**.
-
-**2 — Knowledge Graph.** Extractions are deduplicated (RapidFuzz `token_sort_ratio ≥ 92`) and loaded into Neo4j as 5 node types and 4 relationship types (`BELONGS_TO`, `MADE_BY`, `HAS_TAG`, `CONTAINS_ALLERGEN`). The same records are embedded into Qdrant for semantic search.
-
-**3 — Agent.** A 6-node LangGraph state machine — `extract_intent` → (router) → `build_cypher` | `hybrid_search` | `analytics` → `execute_query` → `format_answer` — backed by Groq Llama 3.3 70B. Intent decides the path: hard constraints go to Cypher, similarity goes to GraphRAG, aggregations go straight to Neo4j.
+1. **Extraction (offline).** GPT-4o-mini / GPT-4o teacher labels → Pydantic v2 validation (2 attempts per product) → QLoRA (rank 16, 4-bit) fine-tune of Qwen2-VL 7B on a Modal A100 via Unsloth. Snorkel weak supervision with 31 labeling functions. New teacher runs use free Groq models.
+2. **Knowledge graph (offline).** RapidFuzz deduplication (`token_sort_ratio ≥ 92`) → Neo4j `Product` / `Brand` / `Category` / `DietaryTag` / `Allergen` with `MADE_BY`, `BELONGS_TO`, `HAS_TAG`, `CONTAINS_ALLERGEN` → the same records embedded into Qdrant.
+3. **Agent (online).** `extract_intent` → router → `build_cypher` | `hybrid_search` | `analytics` → `execute_query` → `format_answer`.
+   - Parameterised Cypher templates first; LLM-written Cypher only for name lookups, checked by a validator and run in a **read-only transaction**.
+   - Allergen exclusions match every spelling in the graph ("peanuts" also excludes "peanut"; "dairy" also excludes milk, butter, cheese). The agent never claims a product is allergen-free, because only 5.5% of products carry allergen data.
+   - Input guardrails block PII, prompt injection and abuse before any LLM call.
 
 ![RetailGraph Neo4j — all 4 relationship types](assets/neo4j_graph.png)
 
 ---
 
-## Benchmark — GraphRAG vs VectorRAG vs Neo4j
+## Quick start
 
-20 queries · 3 query types · ground-truth scoring
+Everything runs locally and free: Neo4j and Qdrant in Docker, the LLM on Groq's free tier.
 
-| System | Accuracy | Avg Latency |
-|---|---|---|
-| Vector only (Qdrant) | 0 / 20 (0%) | ~0s |
-| Graph only (Neo4j) | 20 / 20 (100%) | 1.3s |
-| **GraphRAG (hybrid)** | **18 / 20 (90%)** | 9.99s |
+```bash
+git clone https://github.com/AmanDataGuy/RetailGraph && cd RetailGraph
+cp .env.example .env                 # set GROQ_API_KEY (extra GROQ_API_KEY_2.. keys rotate on rate limits)
+docker compose up -d --build         # Neo4j :7474  Qdrant :6333  API :8000/docs  UI :8501
+```
 
-| Type | Vector | Graph | GraphRAG |
-|---|---|---|---|
-| Multi-constraint (price + tags) | 0 / 7 | 7 / 7 | 7 / 7 |
-| Semantic (similarity) | 0 / 7 | 7 / 7 | 7 / 7 |
-| Analytics (aggregations) | 0 / 6 | 6 / 6 | 4 / 6 |
+Load the graph and vectors once (needs `data/training/verified_extractions.jsonl`, which is not in git):
 
-**Key finding:** vector search alone fails *every* query because it cannot enforce hard constraints — a $5 price cap or a `vegan` tag is not a direction in embedding space. GraphRAG matches Graph on constrained and semantic queries; its 2 misses are pure aggregations where there is no semantic component, so the agent routes those directly to Cypher instead.
+```bash
+pip install -e ".[dev,pipeline]"
+NEO4J_URI=bolt://localhost:7687 NEO4J_PASSWORD=retailgraph_local QDRANT_URL=http://localhost:6333 make ingest
+```
+
+Develop without Docker for the app:
+
+```bash
+make test          # 400+ unit tests, no keys or databases needed (same as CI)
+make run           # API on :8000 + Streamlit on :8501, using the URLs in .env
+make benchmark     # retrieval smoke test
+python eval/collect_results.py   # live agent eval (needs the stack + GROQ_API_KEY)
+```
 
 ---
 
-## What Didn't Work
+## Project layout
 
-**Self-training collapsed.** After extracting 2,161 high-confidence products with the Round 1 model, I merged those pseudo-labels straight into the training set and retrained. Category accuracy *dropped* from 82% to 66% — the model learned to repeat its own errors, more confidently. The fix was a GPT-4o-mini verification pass over just the two weak fields (category + dietary_tags), correcting 487 categories and 298 tag sets for ~$0.15. Round 3 restored 94.2%.
-
-**The lesson:** data quality beats data quantity. A teacher model needs to be more accurate than its student before its output is safe to train on.
+```text
+src/retailgraph/
+  agent/          LangGraph state machine, nodes, Groq client (key rotation), guardrails
+  api/            FastAPI app: /v1/query /v1/search /v1/products/{id} /v1/analytics /v1/health
+  graph/          Neo4j builder + queries (shared driver), Qdrant loader, hybrid search, dedup
+  extraction/     Pydantic schema, normalizer, validator, prompts, Modal extractor, Snorkel LFs
+  ui/             Streamlit app
+  domain_adapter/ retail.yaml — controlled vocabularies
+training/         Teacher-pair generation, QLoRA fine-tune + eval on Modal, LLM judge
+eval/             Golden queries + live agent eval
+scripts/          Index creation, benchmark, stress and adversarial API tests
+tests/unit/       Keyless unit tests (run in CI)
+```
 
 ---
 
-## Quick Start
+## Limitations
 
-```bash
-git clone https://github.com/AmanDataGuy/RetailGraph
-cd RetailGraph
-pip install -r requirements.txt
-cp .env.example .env      # fill in NEO4J_*, QDRANT_*, GROQ_API_KEY
-```
+- **Text-only inference.** Production extraction sent listing text only; the visual fields exist only in 500 training pairs and are not scored.
+- **Val split is not clean.** 120 val rows are template-synthetic and some val products appear in training through the visual pairs, so the extraction numbers are optimistic.
+- **Graph lineage.** The live graph was built from an earlier model round plus GPT-4o-mini category/tag corrections; the table above scores the final round.
+- **Allergen coverage.** Only 5.5% of products carry allergen data, so "no peanuts" means "no *known* peanuts".
+- **Scale.** 2,160 products, so Qdrant does exact search; no index tuning is claimed.
 
-```bash
-# Load the knowledge graph (one-time)
-python scripts/create_indexes.py
-python src/graph/builder.py
-python src/graph/vector_store.py
-```
+## What didn't work
 
-```bash
-# Run the stack
-uvicorn src.api.main:app --reload --port 8000   # API + Swagger at /docs
-streamlit run app.py                            # UI at :8501
-```
-
-Needs a Neo4j instance (AuraDB or `docker run neo4j`) and Qdrant (Cloud or `docker run -p 6333:6333 qdrant/qdrant`).
+**Self-training collapsed.** Merging the Round-1 model's own high-confidence predictions back into training made category accuracy drop from 82% to 66% (measured during training; that eval file wasn't kept). The model learned to repeat its errors more confidently. A GPT-4o-mini verification pass over the two weak fields (487 categories, 298 tag sets) fixed the data, and Round 3 reached the 78.3% category accuracy above. Lesson: a teacher must be more accurate than its student before its output is safe to train on.
 
 ---
 
-## Tech Stack
+## Tech stack
 
 | Layer | Technology |
 |---|---|
-| Extraction model | Qwen2-VL 7B (QLoRA · Unsloth · Modal A100) |
-| Weak supervision | Snorkel — 31 labeling functions |
-| Schema validation | Pydantic v2 + retry loop |
-| Knowledge graph | Neo4j AuraDB (Cypher) |
-| Vector store | Qdrant (all-MiniLM-L6-v2, 384-dim) |
-| Agent | LangGraph — 6-node state machine |
-| Agent LLM | Groq · Llama 3.3 70B |
-| Evaluation | LLM-as-Judge (GPT-4o-mini) |
-| Backend / Frontend | FastAPI (5 endpoints) · Streamlit |
-
----
-
-## Project Layout
-
-```text
-src/agent/       LangGraph agent — state, nodes, router, Groq wrapper
-src/graph/       Neo4j builder + Cypher queries + Qdrant store + GraphRAG hybrid search
-src/api/         FastAPI — /query /search /products /analytics /health
-src/extraction/  Offline pipeline — schema, validator, normalizer, Snorkel weak supervision
-src/ui/          Streamlit interface
-training/        QLoRA fine-tuning, training-data generation, evaluation, LLM-as-Judge
-scripts/         Index creation, graph loading, benchmark
-```
-
----
+| Extraction model | Qwen2-VL 7B · QLoRA · Unsloth · Modal A100 |
+| Labels | GPT-4o-mini / GPT-4o teachers (v1), Groq gpt-oss-120b / qwen3.8-27b (new runs), Snorkel |
+| Graph / vectors | Neo4j 5 · Qdrant 1.17 · fastembed all-MiniLM-L6-v2 |
+| Agent | LangGraph · Groq `openai/gpt-oss-120b` |
+| Serving | FastAPI · Streamlit · Docker Compose · GitHub Actions CI |
 
 <div align="center">
 
-*Vectors guess. Graphs know. GraphRAG does both.*
-
-**[LinkedIn](https://www.linkedin.com/in/aman-dataguy/) · [GitHub](https://github.com/AmanDataGuy/RetailGraph) · [HuggingFace Dataset](https://huggingface.co/datasets/amanDS5153/retailgraph-products)**
+**[LinkedIn](https://www.linkedin.com/in/aman-dataguy/) · [GitHub](https://github.com/AmanDataGuy/RetailGraph)**
 
 </div>

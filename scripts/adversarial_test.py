@@ -1,32 +1,19 @@
 """
-scripts/adversarial_test.py
+# adversarial_test.py - edge-case sweep against a running RetailGraph API (not load; see stress_test.py)
 
-Edge-case / failure-mode sweep against the live RetailGraph API — the part
-of "stress test everything, look for deadends/errors" that isn't about
-concurrency (see scripts/stress_test.py for that). Covers:
-
-  - Pydantic validation boundaries (query length, top_k range, missing
-    fields, wrong types) — confirms clean 422s, not 500s or raw tracebacks
-  - Guardrail coverage (PII, prompt injection, toxicity) and false-positive
-    checks (legitimate queries that look similar but shouldn't trip)
-  - GET /products/{id} for non-existent / malformed / injection-shaped IDs
-  - Unicode, emoji, very long strings, null bytes
-  - Numeric boundary values (zero/negative price, huge price)
-  - Malformed JSON / wrong Content-Type
-  - The brand+min_price /search pass-through fix
-  - /v1/analytics and /v1/health sanity
-
-Usage:
-    venv/Scripts/python scripts/adversarial_test.py [--base-url http://localhost:8000]
+- Validation 422s, malformed bodies, odd product ids, unicode, price bounds, guardrails, analytics/health.
+- Run: `python scripts/adversarial_test.py [--base-url http://localhost:8000]`; exits 1 on any failure.
 """
 
 import argparse
 import json
+
 import requests
 
 FAILURES = []
 
 
+# Print PASS/FAIL for one check and remember failures.
 def check(label, condition, detail=""):
     status = "PASS" if condition else "FAIL"
     print(f"  [{status}] {label}" + (f" — {detail}" if detail and not condition else ""))
@@ -34,17 +21,18 @@ def check(label, condition, detail=""):
         FAILURES.append(f"{label}: {detail}")
 
 
+# Print a section heading.
 def section(title):
     print(f"\n=== {title} ===")
 
 
+# Run every check in order, then exit 1 if any failed.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://localhost:8000")
     args = parser.parse_args()
     base = args.base_url
 
-    # ── Pydantic validation boundaries ──────────────────────────────────────
     section("QueryRequest validation (min_length=3, max_length=500)")
 
     r = requests.post(f"{base}/v1/query", json={"query": "ab"})
@@ -82,7 +70,6 @@ def main():
     r = requests.post(f"{base}/v1/search", json={})
     check("empty /search body accepted (all fields optional)", r.status_code == 200, f"got {r.status_code}: {r.text[:200]}")
 
-    # ── Malformed requests ───────────────────────────────────────────────────
     section("Malformed requests")
 
     r = requests.post(f"{base}/v1/query", data="not json", headers={"Content-Type": "application/json"})
@@ -94,7 +81,6 @@ def main():
     r = requests.post(f"{base}/v1/search", json={"max_price": "not a number"})
     check("wrong type for max_price rejected with 422", r.status_code == 422, f"got {r.status_code}")
 
-    # ── GET /products/{id} ───────────────────────────────────────────────────
     section("GET /products/{id} edge cases")
 
     r = requests.get(f"{base}/v1/products/nonexistent-id-12345")
@@ -113,7 +99,6 @@ def main():
     r = requests.get(f"{base}/v1/products/%00")
     check("null-byte-shaped product ID handled without 500", r.status_code in (404, 422), f"got {r.status_code}")
 
-    # ── Unicode / special characters in queries ─────────────────────────────
     section("Unicode / special characters")
 
     r = requests.post(f"{base}/v1/query", json={"query": "vegan snacks 🌱🥦 under $10 日本語"})
@@ -125,7 +110,6 @@ def main():
     r = requests.post(f"{base}/v1/search", json={"brand": "O'Brien's & Co."})
     check("apostrophe+ampersand in brand doesn't break Cypher", r.status_code == 200, f"got {r.status_code}: {r.text[:300]}")
 
-    # ── Numeric boundaries ───────────────────────────────────────────────────
     section("Numeric boundaries")
 
     r = requests.post(f"{base}/v1/search", json={"max_price": 0})
@@ -142,7 +126,6 @@ def main():
     if r.status_code == 200:
         check("  -> result_count is actually 0", r.json()["result_count"] == 0, f"got {r.json()['result_count']}")
 
-    # ── Guardrails: should block ─────────────────────────────────────────────
     section("Guardrails — must block")
 
     cases_block = [
@@ -174,7 +157,6 @@ def main():
             and "personal information" not in r.json().get("answer", "").lower()
         check(f"{label} NOT blocked", not_blocked, f"answer={r.json().get('answer','')[:150] if r.status_code==200 else r.status_code}")
 
-    # ── /v1/analytics and /v1/health sanity ─────────────────────────────────
     section("Analytics + health sanity")
 
     r = requests.get(f"{base}/v1/analytics")
@@ -190,7 +172,6 @@ def main():
         h = r.json()
         check("  -> status is 'ok'", h["status"] == "ok", f"got {h}")
 
-    # ── Summary ──────────────────────────────────────────────────────────────
     print(f"\n{'='*60}")
     if FAILURES:
         print(f"{len(FAILURES)} FAILURE(S):")
