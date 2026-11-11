@@ -87,24 +87,39 @@ Several checks only test that results came back, so this is a smoke test, not a 
 
 ---
 
-## Quick start
+## Setup
 
-Everything runs locally and free: Neo4j and Qdrant in Docker, the LLM on Groq's free tier.
+Everything runs locally and free: Neo4j and Qdrant in Docker, the LLM on Groq's free tier. Needs Docker and Python 3.11.
 
 ```bash
+# 1. Get the code and set your Groq key (free at console.groq.com)
 git clone https://github.com/AmanDataGuy/RetailGraph && cd RetailGraph
-cp .env.example .env                 # set GROQ_API_KEY (extra GROQ_API_KEY_2.. keys rotate on rate limits)
+cp .env.example .env                 # set GROQ_API_KEY; optional GROQ_API_KEY_2.. rotate on rate limits
+
+# 2. Start Neo4j, Qdrant, the API and the UI
 docker compose up -d --build         # Neo4j :7474  Qdrant :6333  API :8000/docs  UI :8501
-```
 
-Load the graph and vectors once from `data/training/verified_extractions.jsonl` (2,161 products, included in the repo):
-
-```bash
+# 3. Load the graph and vectors once (from data/training/verified_extractions.jsonl, in the repo)
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,pipeline]"
-NEO4J_URI=bolt://localhost:7687 NEO4J_PASSWORD=retailgraph_local QDRANT_URL=http://localhost:6333 make ingest
+make ingest
+python scripts/add_image_urls.py     # product photos, served from the public HF image dataset
 ```
 
-Develop without Docker for the app:
+Open http://localhost:8501. The loaded data lives in Docker volumes: `docker compose down` keeps it, `docker compose down -v` deletes it.
+
+### Where the other assets live
+
+| Asset | Location |
+|---|---|
+| Product images (2,160) | [HF dataset `amanDS5153/retailgraph-products`](https://huggingface.co/datasets/amanDS5153/retailgraph-products) |
+| Fine-tuned Qwen2-VL 7B weights | HF model `amanDS5153/retailgraph-qwen2vl-7b` (private) |
+| Raw data, training sets, MLflow runs, extraction eval results | HF dataset `amanDS5153/retailgraph-data` (private) |
+
+The app does not need the weights or the private data. To retrain or re-score extraction, download the data into `data/`:
+`hf download amanDS5153/retailgraph-data --repo-type dataset --local-dir data`.
+
+### Develop
 
 ```bash
 make test          # 400+ unit tests, no keys or databases needed (same as CI)
