@@ -97,7 +97,7 @@ cp .env.example .env                 # set GROQ_API_KEY (extra GROQ_API_KEY_2.. 
 docker compose up -d --build         # Neo4j :7474  Qdrant :6333  API :8000/docs  UI :8501
 ```
 
-Load the graph and vectors once (needs `data/training/verified_extractions.jsonl`, which is not in git):
+Load the graph and vectors once from `data/training/verified_extractions.jsonl` (2,161 products, included in the repo):
 
 ```bash
 pip install -e ".[dev,pipeline]"

@@ -29,7 +29,8 @@ venv-eval/
 __pycache__/
 *.pyc
 *.log
-data/training/
+data/training/*
+!data/training/verified_extractions.jsonl
 data/extracted/
  training/data/
 
